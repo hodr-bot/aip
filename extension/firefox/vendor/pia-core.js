@@ -13,55 +13,61 @@
   'use strict';
   //region block: imports
   var imul = Math.imul;
-  var THROW_IAE = kotlin_kotlin.$_$.s1;
-  var enumEntries = kotlin_kotlin.$_$.m;
-  var Unit_getInstance = kotlin_kotlin.$_$.e;
-  var Enum = kotlin_kotlin.$_$.o1;
-  var protoOf = kotlin_kotlin.$_$.c1;
-  var defineProp = kotlin_kotlin.$_$.s;
-  var initMetadataForClass = kotlin_kotlin.$_$.w;
+  var numberToLong = kotlin_kotlin.$_$.e1;
+  var protoOf = kotlin_kotlin.$_$.f1;
+  var initMetadataForObject = kotlin_kotlin.$_$.b1;
+  var Long = kotlin_kotlin.$_$.u1;
+  var defineProp = kotlin_kotlin.$_$.u;
+  var THROW_IAE = kotlin_kotlin.$_$.w1;
+  var enumEntries = kotlin_kotlin.$_$.o;
+  var Unit_getInstance = kotlin_kotlin.$_$.f;
+  var Enum = kotlin_kotlin.$_$.s1;
+  var initMetadataForClass = kotlin_kotlin.$_$.y;
   var VOID = kotlin_kotlin.$_$.a;
-  var initMetadataForObject = kotlin_kotlin.$_$.z;
-  var Exception = kotlin_kotlin.$_$.p1;
-  var Exception_init_$Init$ = kotlin_kotlin.$_$.c;
-  var captureStack = kotlin_kotlin.$_$.o;
-  var toString = kotlin_kotlin.$_$.d1;
-  var hashCode = kotlin_kotlin.$_$.v;
-  var THROW_CCE = kotlin_kotlin.$_$.r1;
-  var equals = kotlin_kotlin.$_$.t;
-  var initMetadataForCompanion = kotlin_kotlin.$_$.x;
-  var indexOf = kotlin_kotlin.$_$.e1;
-  var _Char___init__impl__6a9atx = kotlin_kotlin.$_$.d;
-  var indexOf_0 = kotlin_kotlin.$_$.f1;
-  var charSequenceGet = kotlin_kotlin.$_$.q;
-  var toIntOrNull = kotlin_kotlin.$_$.j1;
-  var isDigit = kotlin_kotlin.$_$.g1;
-  var emptyList = kotlin_kotlin.$_$.f;
-  var isCharSequence = kotlin_kotlin.$_$.a1;
-  var trim = kotlin_kotlin.$_$.m1;
-  var charSequenceLength = kotlin_kotlin.$_$.r;
-  var charArrayOf = kotlin_kotlin.$_$.p;
-  var split = kotlin_kotlin.$_$.i1;
-  var ArrayList_init_$Create$ = kotlin_kotlin.$_$.b;
-  var trim_0 = kotlin_kotlin.$_$.l1;
-  var isWhitespace = kotlin_kotlin.$_$.h1;
-  var to = kotlin_kotlin.$_$.u1;
-  var mapOf = kotlin_kotlin.$_$.j;
-  var emptyMap = kotlin_kotlin.$_$.g;
-  var initMetadataForInterface = kotlin_kotlin.$_$.y;
-  var toString_0 = kotlin_kotlin.$_$.t1;
-  var getStringHashCode = kotlin_kotlin.$_$.u;
-  var FunctionAdapter = kotlin_kotlin.$_$.n;
-  var isInterface = kotlin_kotlin.$_$.b1;
-  var Comparator = kotlin_kotlin.$_$.n1;
-  var Long = kotlin_kotlin.$_$.q1;
-  var compareValues = kotlin_kotlin.$_$.l;
-  var minWithOrNull = kotlin_kotlin.$_$.k;
-  var listOf = kotlin_kotlin.$_$.i;
-  var joinToString = kotlin_kotlin.$_$.h;
-  var trimMargin = kotlin_kotlin.$_$.k1;
+  var Exception = kotlin_kotlin.$_$.t1;
+  var Exception_init_$Init$ = kotlin_kotlin.$_$.d;
+  var captureStack = kotlin_kotlin.$_$.q;
+  var toString = kotlin_kotlin.$_$.g1;
+  var hashCode = kotlin_kotlin.$_$.x;
+  var THROW_CCE = kotlin_kotlin.$_$.v1;
+  var equals = kotlin_kotlin.$_$.v;
+  var initMetadataForCompanion = kotlin_kotlin.$_$.z;
+  var indexOf = kotlin_kotlin.$_$.h1;
+  var _Char___init__impl__6a9atx = kotlin_kotlin.$_$.e;
+  var indexOf_0 = kotlin_kotlin.$_$.i1;
+  var charSequenceGet = kotlin_kotlin.$_$.s;
+  var toIntOrNull = kotlin_kotlin.$_$.n1;
+  var isDigit = kotlin_kotlin.$_$.j1;
+  var emptyList = kotlin_kotlin.$_$.h;
+  var isCharSequence = kotlin_kotlin.$_$.c1;
+  var trim = kotlin_kotlin.$_$.q1;
+  var charSequenceLength = kotlin_kotlin.$_$.t;
+  var charArrayOf = kotlin_kotlin.$_$.r;
+  var split = kotlin_kotlin.$_$.l1;
+  var ArrayList_init_$Create$ = kotlin_kotlin.$_$.c;
+  var trim_0 = kotlin_kotlin.$_$.p1;
+  var isWhitespace = kotlin_kotlin.$_$.k1;
+  var to = kotlin_kotlin.$_$.y1;
+  var mapOf = kotlin_kotlin.$_$.l;
+  var emptyMap = kotlin_kotlin.$_$.i;
+  var initMetadataForInterface = kotlin_kotlin.$_$.a1;
+  var toString_0 = kotlin_kotlin.$_$.x1;
+  var getStringHashCode = kotlin_kotlin.$_$.w;
+  var FunctionAdapter = kotlin_kotlin.$_$.p;
+  var isInterface = kotlin_kotlin.$_$.d1;
+  var Comparator = kotlin_kotlin.$_$.r1;
+  var compareValues = kotlin_kotlin.$_$.n;
+  var minWithOrNull = kotlin_kotlin.$_$.m;
+  var startsWith = kotlin_kotlin.$_$.m1;
+  var collectionSizeOrDefault = kotlin_kotlin.$_$.g;
+  var ArrayList_init_$Create$_0 = kotlin_kotlin.$_$.b;
+  var listOf = kotlin_kotlin.$_$.k;
+  var joinToString = kotlin_kotlin.$_$.j;
+  var trimMargin = kotlin_kotlin.$_$.o1;
   //endregion
   //region block: pre-declaration
+  initMetadataForObject(JsTimeBridge, 'JsTimeBridge');
+  initMetadataForObject(JsConstants, 'JsConstants');
   initMetadataForClass(ConnectionState, 'ConnectionState', VOID, Enum);
   initMetadataForClass(TrafficVerdict, 'TrafficVerdict', VOID, Enum);
   initMetadataForObject(KillSwitch, 'KillSwitch');
@@ -80,11 +86,46 @@
   initMetadataForClass(RegionEndpoint, 'RegionEndpoint');
   initMetadataForClass(sam$kotlin_Comparator$0, 'sam$kotlin_Comparator$0', VOID, VOID, [Comparator, FunctionAdapter]);
   initMetadataForObject(RegionPicker, 'RegionPicker');
+  initMetadataForClass(ServerEntry, 'ServerEntry');
   initMetadataForCompanion(Companion_0);
+  initMetadataForClass(ServerCatalog, 'ServerCatalog');
+  initMetadataForCompanion(Companion_1);
   initMetadataForClass(AuthToken, 'AuthToken');
   initMetadataForClass(WireGuardLease, 'WireGuardLease');
   initMetadataForObject(WireGuard, 'WireGuard');
   //endregion
+  function JsTimeBridge() {
+    JsTimeBridge_instance = this;
+  }
+  protoOf(JsTimeBridge).tokenRemainingSec = function (issuedAtEpochSec, ttlSec, nowEpochSec) {
+    return (new AuthToken('js-bridge', numberToLong(issuedAtEpochSec), numberToLong(ttlSec))).remainingSec_rrxxar_k$(numberToLong(nowEpochSec)).toDouble_ygsx0s_k$();
+  };
+  protoOf(JsTimeBridge).tokenShouldRefresh = function (issuedAtEpochSec, nowEpochSec, refreshAfterSec) {
+    return (new AuthToken('js-bridge', numberToLong(issuedAtEpochSec))).shouldRefresh_1u6opk_k$(numberToLong(nowEpochSec), numberToLong(refreshAfterSec));
+  };
+  var JsTimeBridge_instance;
+  function JsTimeBridge_getInstance() {
+    if (JsTimeBridge_instance == null)
+      new JsTimeBridge();
+    return JsTimeBridge_instance;
+  }
+  function JsConstants() {
+    JsConstants_instance = this;
+    this.TOKEN_TTL_SEC = (new Long(86400, 0)).toDouble_ygsx0s_k$();
+    this.REFRESH_AFTER_SEC = (new Long(43200, 0)).toDouble_ygsx0s_k$();
+  }
+  protoOf(JsConstants).get_TOKEN_TTL_SEC_icezbl_k$ = function () {
+    return this.TOKEN_TTL_SEC;
+  };
+  protoOf(JsConstants).get_REFRESH_AFTER_SEC_oe2iv5_k$ = function () {
+    return this.REFRESH_AFTER_SEC;
+  };
+  var JsConstants_instance;
+  function JsConstants_getInstance() {
+    if (JsConstants_instance == null)
+      new JsConstants();
+    return JsConstants_instance;
+  }
   var ConnectionState_CONNECTED_instance;
   var ConnectionState_CONNECTING_instance;
   var ConnectionState_DISCONNECTED_instance;
@@ -638,16 +679,71 @@
       new RegionPicker();
     return RegionPicker_instance;
   }
+  function ServerEntry(id, hostname, latencyMs) {
+    latencyMs = latencyMs === VOID ? null : latencyMs;
+    this.id_1 = id;
+    this.hostname_1 = hostname;
+    this.latencyMs_1 = latencyMs;
+  }
+  protoOf(ServerEntry).get_id_kntnx8_k$ = function () {
+    return this.id_1;
+  };
+  protoOf(ServerEntry).get_hostname_y9ohdo_k$ = function () {
+    return this.hostname_1;
+  };
+  protoOf(ServerEntry).get_latencyMs_lf8qcl_k$ = function () {
+    return this.latencyMs_1;
+  };
+  protoOf(ServerEntry).component1_7eebsc_k$ = function () {
+    return this.id_1;
+  };
+  protoOf(ServerEntry).component2_7eebsb_k$ = function () {
+    return this.hostname_1;
+  };
+  protoOf(ServerEntry).component3_7eebsa_k$ = function () {
+    return this.latencyMs_1;
+  };
+  protoOf(ServerEntry).copy_3s0fwa_k$ = function (id, hostname, latencyMs) {
+    return new ServerEntry(id, hostname, latencyMs);
+  };
+  protoOf(ServerEntry).copy$default_ozv33p_k$ = function (id, hostname, latencyMs, $super) {
+    id = id === VOID ? this.id_1 : id;
+    hostname = hostname === VOID ? this.hostname_1 : hostname;
+    latencyMs = latencyMs === VOID ? this.latencyMs_1 : latencyMs;
+    return $super === VOID ? this.copy_3s0fwa_k$(id, hostname, latencyMs) : $super.copy_3s0fwa_k$.call(this, id, hostname, latencyMs);
+  };
+  protoOf(ServerEntry).toString = function () {
+    return 'ServerEntry(id=' + this.id_1 + ', hostname=' + this.hostname_1 + ', latencyMs=' + toString_0(this.latencyMs_1) + ')';
+  };
+  protoOf(ServerEntry).hashCode = function () {
+    var result = getStringHashCode(this.id_1);
+    result = imul(result, 31) + getStringHashCode(this.hostname_1) | 0;
+    result = imul(result, 31) + (this.latencyMs_1 == null ? 0 : this.latencyMs_1.hashCode()) | 0;
+    return result;
+  };
+  protoOf(ServerEntry).equals = function (other) {
+    if (this === other)
+      return true;
+    if (!(other instanceof ServerEntry))
+      return false;
+    var tmp0_other_with_cast = other instanceof ServerEntry ? other : THROW_CCE();
+    if (!(this.id_1 === tmp0_other_with_cast.id_1))
+      return false;
+    if (!(this.hostname_1 === tmp0_other_with_cast.hostname_1))
+      return false;
+    if (!equals(this.latencyMs_1, tmp0_other_with_cast.latencyMs_1))
+      return false;
+    return true;
+  };
+  function _get_http__d7tner_0($this) {
+    return $this.http_1;
+  }
   function Companion_0() {
     Companion_instance_0 = this;
-    this.TOKEN_TTL_SEC_1 = new Long(86400, 0);
-    this.REFRESH_AFTER_SEC_1 = new Long(43200, 0);
+    this.SERVER_LIST_URL_1 = 'https://serverlist.piaservers.net/vpninfo/servers/v6';
   }
-  protoOf(Companion_0).get_TOKEN_TTL_SEC_icezbl_k$ = function () {
-    return this.TOKEN_TTL_SEC_1;
-  };
-  protoOf(Companion_0).get_REFRESH_AFTER_SEC_oe2iv5_k$ = function () {
-    return this.REFRESH_AFTER_SEC_1;
+  protoOf(Companion_0).get_SERVER_LIST_URL_vzd0w1_k$ = function () {
+    return this.SERVER_LIST_URL_1;
   };
   var Companion_instance_0;
   function Companion_getInstance_0() {
@@ -655,8 +751,229 @@
       new Companion_0();
     return Companion_instance_0;
   }
-  function AuthToken(value, issuedAtEpochSec, ttlSec) {
+  function parseRegions($this, body) {
+    // Inline function 'kotlin.collections.mutableListOf' call
+    var entries = ArrayList_init_$Create$();
+    var regionsIndex = indexOf(body, '"regions"');
+    if (regionsIndex < 0) {
+      return entries;
+    }
+    var cursor = skipWs($this, body, regionsIndex + 9 | 0);
+    if (cursor >= body.length || !(charSequenceGet(body, cursor) === _Char___init__impl__6a9atx(58))) {
+      return entries;
+    }
+    cursor = skipWs($this, body, cursor + 1 | 0);
+    if (cursor >= body.length || !(charSequenceGet(body, cursor) === _Char___init__impl__6a9atx(91))) {
+      return entries;
+    }
+    cursor = cursor + 1 | 0;
+    $l$loop_2: while (true) {
+      cursor = skipWs($this, body, cursor);
+      if (cursor >= body.length || charSequenceGet(body, cursor) === _Char___init__impl__6a9atx(93)) {
+        break $l$loop_2;
+      }
+      if (charSequenceGet(body, cursor) === _Char___init__impl__6a9atx(44)) {
+        cursor = cursor + 1 | 0;
+        continue $l$loop_2;
+      }
+      if (!(charSequenceGet(body, cursor) === _Char___init__impl__6a9atx(123))) {
+        break $l$loop_2;
+      }
+      var tmp0_elvis_lhs = extractObject($this, body, cursor);
+      var tmp;
+      if (tmp0_elvis_lhs == null) {
+        break $l$loop_2;
+      } else {
+        tmp = tmp0_elvis_lhs;
+      }
+      var region = tmp;
+      cursor = region.get_second_jf7fjx_k$();
+      var tmp1_elvis_lhs = findBoolField($this, region.get_first_irdx8n_k$(), 'offline');
+      var offline = tmp1_elvis_lhs == null ? false : tmp1_elvis_lhs;
+      if (!offline) {
+        var id = findStringField_0($this, region.get_first_irdx8n_k$(), 'id');
+        var dns = findStringField_0($this, region.get_first_irdx8n_k$(), 'dns');
+        var tmp_0;
+        // Inline function 'kotlin.text.isNullOrEmpty' call
+        // Inline function 'kotlin.contracts.contract' call
+        if (!(id == null || charSequenceLength(id) === 0)) {
+          // Inline function 'kotlin.text.isNullOrEmpty' call
+          // Inline function 'kotlin.contracts.contract' call
+          tmp_0 = !(dns == null || charSequenceLength(dns) === 0);
+        } else {
+          tmp_0 = false;
+        }
+        if (tmp_0) {
+          entries.add_utx5q5_k$(new ServerEntry(id, dns));
+        }
+      }
+    }
+    return entries;
+  }
+  function extractObject($this, body, start) {
+    var index = start;
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    while (index < body.length) {
+      var char = charSequenceGet(body, index);
+      if (inString) {
+        if (escaped)
+          escaped = false;
+        else if (char === _Char___init__impl__6a9atx(92))
+          escaped = true;
+        else if (char === _Char___init__impl__6a9atx(34))
+          inString = false;
+      } else {
+        if (char === _Char___init__impl__6a9atx(34))
+          inString = true;
+        else if (char === _Char___init__impl__6a9atx(123))
+          depth = depth + 1 | 0;
+        else if (char === _Char___init__impl__6a9atx(125)) {
+          depth = depth - 1 | 0;
+          if (depth === 0) {
+            // Inline function 'kotlin.text.substring' call
+            var endIndex = index + 1 | 0;
+            // Inline function 'kotlin.js.asDynamic' call
+            var tmp$ret$1 = body.substring(start, endIndex);
+            return to(tmp$ret$1, index + 1 | 0);
+          }
+        }
+      }
+      index = index + 1 | 0;
+    }
+    return null;
+  }
+  function findStringField_0($this, body, field) {
+    var key = '"' + field + '"';
+    var index = indexOf(body, key);
+    while (index >= 0) {
+      var cursor = skipWs($this, body, index + key.length | 0);
+      if (cursor < body.length && charSequenceGet(body, cursor) === _Char___init__impl__6a9atx(58)) {
+        cursor = skipWs($this, body, cursor + 1 | 0);
+        if (cursor < body.length && charSequenceGet(body, cursor) === _Char___init__impl__6a9atx(34)) {
+          var start = cursor + 1 | 0;
+          var end = indexOf_0(body, _Char___init__impl__6a9atx(34), start);
+          if (end > start) {
+            // Inline function 'kotlin.text.substring' call
+            // Inline function 'kotlin.js.asDynamic' call
+            return body.substring(start, end);
+          }
+          return null;
+        }
+        return null;
+      }
+      index = indexOf(body, key, index + 1 | 0);
+    }
+    return null;
+  }
+  function findBoolField($this, body, field) {
+    var key = '"' + field + '"';
+    var index = indexOf(body, key);
+    while (index >= 0) {
+      var cursor = skipWs($this, body, index + key.length | 0);
+      if (cursor < body.length && charSequenceGet(body, cursor) === _Char___init__impl__6a9atx(58)) {
+        cursor = skipWs($this, body, cursor + 1 | 0);
+        // Inline function 'kotlin.text.substring' call
+        var startIndex = cursor;
+        // Inline function 'kotlin.js.asDynamic' call
+        var rest = body.substring(startIndex);
+        return startsWith(rest, 'true') ? true : startsWith(rest, 'false') ? false : null;
+      }
+      index = indexOf(body, key, index + 1 | 0);
+    }
+    return null;
+  }
+  function skipWs($this, body, from) {
+    var cursor = from;
+    while (cursor < body.length && isWhitespace(charSequenceGet(body, cursor))) {
+      cursor = cursor + 1 | 0;
+    }
+    return cursor;
+  }
+  function ServerCatalog(http) {
     Companion_getInstance_0();
+    this.http_1 = http;
+  }
+  protoOf(ServerCatalog).fetchServers_7uiyru_k$ = function () {
+    var entries = parseRegions(this, this.http_1.get$default_3gqdgv_k$('https://serverlist.piaservers.net/vpninfo/servers/v6'));
+    if (entries.isEmpty_y1axqb_k$()) {
+      throw new PiaApiError('server list held no regions');
+    }
+    return entries;
+  };
+  protoOf(ServerCatalog).pickById_eyyjgd_k$ = function (servers, id) {
+    var tmp$ret$1;
+    $l$block: {
+      // Inline function 'kotlin.collections.firstOrNull' call
+      var tmp0_iterator = servers.iterator_jk1svi_k$();
+      while (tmp0_iterator.hasNext_bitz1p_k$()) {
+        var element = tmp0_iterator.next_20eer_k$();
+        // Inline function 'pia.core.ServerCatalog.pickById.<anonymous>' call
+        if (element.id_1 === id) {
+          tmp$ret$1 = element;
+          break $l$block;
+        }
+      }
+      tmp$ret$1 = null;
+    }
+    return tmp$ret$1;
+  };
+  protoOf(ServerCatalog).pickBest_4vc6b9_k$ = function (servers) {
+    var tmp = RegionPicker_getInstance();
+    // Inline function 'kotlin.collections.map' call
+    // Inline function 'kotlin.collections.mapTo' call
+    var destination = ArrayList_init_$Create$_0(collectionSizeOrDefault(servers, 10));
+    var tmp0_iterator = servers.iterator_jk1svi_k$();
+    while (tmp0_iterator.hasNext_bitz1p_k$()) {
+      var item = tmp0_iterator.next_20eer_k$();
+      // Inline function 'pia.core.ServerCatalog.pickBest.<anonymous>' call
+      var tmp$ret$0 = new RegionEndpoint(item.id_1, item.hostname_1, VOID, item.latencyMs_1);
+      destination.add_utx5q5_k$(tmp$ret$0);
+    }
+    var tmp0_elvis_lhs = tmp.pickBest_8f64uv_k$(destination);
+    var tmp_0;
+    if (tmp0_elvis_lhs == null) {
+      return null;
+    } else {
+      tmp_0 = tmp0_elvis_lhs;
+    }
+    var best = tmp_0;
+    var tmp$ret$4;
+    $l$block: {
+      // Inline function 'kotlin.collections.firstOrNull' call
+      var tmp0_iterator_0 = servers.iterator_jk1svi_k$();
+      while (tmp0_iterator_0.hasNext_bitz1p_k$()) {
+        var element = tmp0_iterator_0.next_20eer_k$();
+        // Inline function 'pia.core.ServerCatalog.pickBest.<anonymous>' call
+        if (element.id_1 === best.get_id_kntnx8_k$()) {
+          tmp$ret$4 = element;
+          break $l$block;
+        }
+      }
+      tmp$ret$4 = null;
+    }
+    return tmp$ret$4;
+  };
+  function Companion_1() {
+    Companion_instance_1 = this;
+    this.TOKEN_TTL_SEC_1 = new Long(86400, 0);
+    this.REFRESH_AFTER_SEC_1 = new Long(43200, 0);
+  }
+  protoOf(Companion_1).get_TOKEN_TTL_SEC_icezbl_k$ = function () {
+    return this.TOKEN_TTL_SEC_1;
+  };
+  protoOf(Companion_1).get_REFRESH_AFTER_SEC_oe2iv5_k$ = function () {
+    return this.REFRESH_AFTER_SEC_1;
+  };
+  var Companion_instance_1;
+  function Companion_getInstance_1() {
+    if (Companion_instance_1 == null)
+      new Companion_1();
+    return Companion_instance_1;
+  }
+  function AuthToken(value, issuedAtEpochSec, ttlSec) {
+    Companion_getInstance_1();
     ttlSec = ttlSec === VOID ? new Long(86400, 0) : ttlSec;
     this.value_1 = value;
     this.issuedAtEpochSec_1 = issuedAtEpochSec;
@@ -814,6 +1131,10 @@
   //endregion
   //region block: exports
   function $jsExportAll$(_) {
+    var $pia = _.pia || (_.pia = {});
+    var $pia$core = $pia.core || ($pia.core = {});
+    defineProp($pia$core, 'JsTimeBridge', JsTimeBridge_getInstance);
+    defineProp($pia$core, 'JsConstants', JsConstants_getInstance);
     var $pia = _.pia || (_.pia = {});
     var $pia$core = $pia.core || ($pia.core = {});
     $pia$core.ConnectionState = ConnectionState;

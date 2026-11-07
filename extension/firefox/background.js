@@ -102,10 +102,30 @@ function coreValue(name) {
 /* ------------------------------------------------------------------ */
 
 function remainingSec(issuedAtEpochSec, nowEpochSec) {
+  var bridge = coreValue('JsTimeBridge');
+  if (bridge && typeof bridge.tokenRemainingSec === 'function') {
+    try {
+      return bridge.tokenRemainingSec(issuedAtEpochSec, TOKEN_TTL_SEC, nowEpochSec);
+    } catch (coreError) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[pia] core JsTimeBridge failed, using mirror:', coreError);
+      }
+    }
+  }
   return (issuedAtEpochSec + TOKEN_TTL_SEC) - nowEpochSec;
 }
 
 function shouldRefreshToken(issuedAtEpochSec, nowEpochSec) {
+  var bridge = coreValue('JsTimeBridge');
+  if (bridge && typeof bridge.tokenShouldRefresh === 'function') {
+    try {
+      return bridge.tokenShouldRefresh(issuedAtEpochSec, nowEpochSec, REFRESH_AFTER_SEC);
+    } catch (coreError) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[pia] core JsTimeBridge failed, using mirror:', coreError);
+      }
+    }
+  }
   return (nowEpochSec - issuedAtEpochSec) >= REFRESH_AFTER_SEC ||
     remainingSec(issuedAtEpochSec, nowEpochSec) <= REFRESH_AFTER_SEC;
 }
