@@ -140,10 +140,10 @@ class PiaClientTest {
     }
 
     @Test
-    fun `addKey parses ok payload into lease and resolvers`() {
+    fun `addKey prefers server_ip over hostname for the endpoint`() {
         val hostname = "uk-london.privacy.network"
         val fakeHttp = FakeHttpPort(
-            getReply = """{"status":"OK","peer_ip":"10.4.0.2","server_key":"dummy-server-key=","server_port":1337,"dns_servers":["10.0.0.243","10.0.0.244"]}""",
+            getReply = """{"status":"OK","peer_ip":"10.4.0.2","server_key":"dummy-server-key=","server_port":1337,"server_ip":"1.2.3.4","dns_servers":["10.0.0.243","10.0.0.244"]}""",
         )
         val fakeClock = FakeClock(1_700_000L)
         val client = PiaClient(fakeHttp, fakeClock)
@@ -152,10 +152,23 @@ class PiaClientTest {
 
         assertEquals("10.4.0.2", result.lease.peerIp)
         assertEquals("dummy-server-key=", result.lease.serverPublicKey)
-        assertEquals("$hostname:1337", result.lease.endpoint)
+        assertEquals("1.2.3.4:1337", result.lease.endpoint)
         assertEquals(listOf("10.0.0.243", "10.0.0.244"), result.dnsServers)
         assertTrue(fakeHttp.lastGetUrl?.startsWith("https://$hostname:1337/addKey") == true)
         assertEquals(1, fakeHttp.getCalls)
+    }
+
+    @Test
+    fun `addKey falls back to hostname when server_ip missing`() {
+        val hostname = "uk-london.privacy.network"
+        val fakeHttp = FakeHttpPort(
+            getReply = """{"status":"OK","peer_ip":"10.4.0.2","server_key":"k=","server_port":1337,"dns_servers":[]}""",
+        )
+        val client = PiaClient(fakeHttp, FakeClock(1_700_000L))
+
+        val result = client.addKey(hostname, AuthToken("dummy-token-value", 1_700_000L), "dummy-pubkey")
+
+        assertEquals("$hostname:1337", result.lease.endpoint)
     }
 
     @Test

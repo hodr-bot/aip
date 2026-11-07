@@ -271,7 +271,7 @@ class PiaVpnService : VpnService() {
             tunnel = null
             val reason = error.message ?: error.javaClass.simpleName
             writeState(false, serverId, reason)
-            postAlert("AIP VPN tunnel down", "Unexpected teardown: $reason")
+            postAlert("AIP VPN tunnel down", "Disconnected: $reason")
             stopSelf()
         }
     }
@@ -407,7 +407,7 @@ class PiaVpnService : VpnService() {
         backend = null
         tunnel = null
         writeState(false, serverId, reason)
-        postAlert("AIP VPN tunnel down", "Connected but no traffic: $reason")
+        postAlert("AIP VPN tunnel down", "Disconnected: $reason")
         stopSelf()
     }
 

@@ -89,11 +89,15 @@ class PiaClient(
         if (peerIp.isNullOrEmpty() || serverKey.isNullOrEmpty() || serverPort == null) {
             throw PiaApiError("addKey response missed peer_ip, server_key or server_port")
         }
+        // The lease endpoint is the server IP from the payload, never the
+        // region hostname: for virtual regions the name resolves elsewhere
+        // and the handshake never completes (tunnel up, zero traffic).
+        val serverIp = findStringField(body, "server_ip")?.takeIf { it.isNotEmpty() }
         val dnsServers = findStringArray(body, "dns_servers")
         val lease = WireGuardLease(
             peerIp = peerIp,
             serverPublicKey = serverKey,
-            endpoint = "$hostname:$serverPort",
+            endpoint = "${serverIp ?: hostname}:$serverPort",
         )
         return LeaseResult(lease = lease, dnsServers = dnsServers)
     }
