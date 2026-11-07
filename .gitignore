@@ -4,3 +4,4 @@ out/
 *.iml
 .env
 dist/
+local.properties
