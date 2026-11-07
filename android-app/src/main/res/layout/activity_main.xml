@@ -187,6 +187,14 @@
                     android:text="Allow local network"
                     android:textColor="@color/pia_text"
                     android:buttonTint="@color/pia_accent" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="No effect while Android “Block connections without VPN” is on: the system forces one or the other, no app can have both."
+                    android:textColor="@color/pia_muted"
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <!-- Footer: quiet secondary actions. -->

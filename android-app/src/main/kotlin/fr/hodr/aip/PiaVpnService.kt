@@ -225,7 +225,11 @@ class PiaVpnService : VpnService() {
     private fun buildStatusNotification(txBytes: Long, rxBytes: Long): Notification {
         val server = activeServerName.ifEmpty { activeServerId ?: "…" }
         val counters = "▲ ${fmtBytes(txBytes)} · ▼ ${fmtBytes(rxBytes)}"
-        val lan = if (activeAllowLan) "LAN direct (hors tunnel)" else "LAN via tunnel"
+        val lan = if (activeAllowLan) {
+            "LAN direct (unless Android block-without-VPN is on)"
+        } else {
+            "LAN via tunnel"
+        }
         val title = "AIP VPN · $server"
         val detail = if (trafficStalled) {
             "$counters · reconnexion…"
