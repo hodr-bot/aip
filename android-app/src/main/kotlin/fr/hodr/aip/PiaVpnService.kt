@@ -260,8 +260,25 @@ class PiaVpnService : VpnService() {
                 .build()
             activeBackend.setState(activeTunnel, Tunnel.State.UP, config)
             // The tunnel is up, but that proves nothing about traffic: some
-            // networks blackhole UDP or DNS. Only claim "connected" once real
-            // traffic flows through the tunnel; otherwise tear down loudly.
+            // networks blackhole UDP or DNS. Give WireGuard up to ~10s to
+            // complete its first handshake (rx>0) BEFORE any TCP runs: probing
+            // instantly tears down tunnels whose handshake just needed a
+            // second. Only claim "connected" once real traffic flows.
+            val handshake = pia.core.awaitHandshake(
+                stats = {
+                    val s = activeBackend.getStatistics(activeTunnel)
+                    s.totalTx() to s.totalRx()
+                },
+                nowMs = { SystemClock.elapsedRealtime() },
+                sleepMs = { SystemClock.sleep(it) },
+            )
+            if (!handshake.completed) {
+                failTraffic(
+                    activeBackend, activeTunnel, serverId,
+                    "handshake unanswered (tx=${handshake.txBytes} rx=0)",
+                )
+                return
+            }
             val (flows, trace) = verifyTraffic()
             if (flows) {
                 trafficStalled = false
@@ -304,7 +321,10 @@ class PiaVpnService : VpnService() {
      */
     private fun verifyTraffic(): Pair<Boolean, String> {
         val trace = StringBuilder()
-        val host = "www.privateinternetaccess.com"
+        // Probe target: a high-traffic public homepage that welcomes VPN
+        // exits (the PIA homepage itself refuses connections arriving from
+        // its own exits, which looks exactly like a dead tunnel).
+        val host = "www.google.com"
         // Stage 1: DNS through the tunnel.
         val dnsStart = SystemClock.elapsedRealtime()
         val addrs = try {
@@ -314,11 +334,11 @@ class PiaVpnService : VpnService() {
             return false to trace.toString()
         }
         val v4count = addrs.count { it is java.net.Inet4Address }
-        trace.append("dns ${v4count}v4+${addrs.size - v4count}v6 ${SystemClock.elapsedRealtime() - dnsStart}ms; ")
+        trace.append("dns ${v4count}v4 ${SystemClock.elapsedRealtime() - dnsStart}ms; ")
         // Stage 2: raw TCP to the first IPv4:443.
         val first4 = addrs.firstOrNull { it is java.net.Inet4Address }
         if (first4 == null) {
-            trace.append("tcp4 no-v4-addr; ")
+            trace.append("tcp4 no-v4; ")
         } else {
             try {
                 val tcpStart = SystemClock.elapsedRealtime()
@@ -327,7 +347,7 @@ class PiaVpnService : VpnService() {
                 }
                 trace.append("tcp4 ok ${SystemClock.elapsedRealtime() - tcpStart}ms; ")
             } catch (error: Exception) {
-                trace.append("tcp4 FAIL(${error.javaClass.simpleName})")
+                trace.append("tcp4 ${error.javaClass.simpleName}")
                 return false to trace.toString()
             }
         }
@@ -357,9 +377,9 @@ class PiaVpnService : VpnService() {
                 trace.append("https ok ${total}b")
                 return true to trace.toString()
             }
-            trace.append("https empty-body(${total}b)")
+            trace.append("https empty(${total}b)")
         } catch (error: Exception) {
-            trace.append("https FAIL(${error.javaClass.simpleName})")
+            trace.append("https ${error.javaClass.simpleName}")
         } finally {
             connection?.disconnect()
         }
