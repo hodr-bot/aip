@@ -113,6 +113,15 @@ class PiaVpnService : VpnService() {
     @Volatile
     private var activeServerName: String = ""
 
+    /**
+     * Whether RFC1918 bypasses the tunnel right now. Shown in the expanded
+     * notice so a dead LAN box is never a guessing game: if this says
+     * "direct" and 192.168.x still fails, Android itself (lockdown mode) or
+     * the Wi-Fi is eating it, not the tunnel config.
+     */
+    @Volatile
+    private var activeAllowLan: Boolean = false
+
     /** Uptime anchor for the session duration shown in the status notice. */
     @Volatile
     private var connectedSinceMs: Long = 0L
@@ -216,6 +225,7 @@ class PiaVpnService : VpnService() {
     private fun buildStatusNotification(txBytes: Long, rxBytes: Long): Notification {
         val server = activeServerName.ifEmpty { activeServerId ?: "…" }
         val counters = "▲ ${fmtBytes(txBytes)} · ▼ ${fmtBytes(rxBytes)}"
+        val lan = if (activeAllowLan) "LAN direct (hors tunnel)" else "LAN via tunnel"
         val title = "AIP VPN · $server"
         val detail = if (trafficStalled) {
             "$counters · reconnexion…"
@@ -229,7 +239,7 @@ class PiaVpnService : VpnService() {
             .setContentText(detail)
             .setStyle(
                 Notification.BigTextStyle()
-                    .bigText("Serveur : $server\nTrafic : $counters\nSession : ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}"),
+                    .bigText("Serveur : $server\nTrafic : $counters\nSession : ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}\n$lan"),
             )
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openAppIntent())
@@ -286,12 +296,19 @@ class PiaVpnService : VpnService() {
      * stored credentials plus last server hostname give a fresh token
      * and a fresh addKey lease. Stops the service when nothing stored.
      */
-    private fun restoreLease(allowLan: Boolean) {
+    private fun restoreLease(intentAllowLan: Boolean) {
         val store = PrefsTokenStore(this)
         val hostname = store.loadLastHost()
         if (hostname.isNullOrEmpty() || store.loadUsername() == null) {
             stopSelf()
             return
+        }
+        // A restart intent carries no checkbox: the persisted UI preference is
+        // the truth. Otherwise a reboot silently drops the LAN bypass.
+        val allowLan = try {
+            getSharedPreferences("pia-prefs", MODE_PRIVATE).getBoolean("allowLan", intentAllowLan)
+        } catch (ignored: Exception) {
+            intentAllowLan
         }
         try {
             val client = PiaClient(HttpUrlConnectionPort(), SystemClock())
@@ -328,6 +345,7 @@ class PiaVpnService : VpnService() {
     ) {
         activeServerId = serverId
         activeServerName = serverName
+        activeAllowLan = allowLan
         probeIpsCsv = probeIps
         val activeTunnel = PiaTunnel(TUNNEL_NAME)
         val activeBackend = GoBackend(this)
@@ -673,6 +691,7 @@ class PiaVpnService : VpnService() {
         writeState(false, keepServer, keepError)
         activeServerId = null
         activeServerName = ""
+        activeAllowLan = false
         connectedSinceMs = 0L
         // User disconnect: zero residue. Drop the mandatory notice now and
         // clear any stale problem alert; success itself stays silent.
