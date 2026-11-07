@@ -128,19 +128,7 @@ class MainActivity : Activity() {
             showLoginView(true)
         }
 
-        disconnectButton.setOnClickListener {
-            val intent = Intent(this, PiaVpnService::class.java).apply {
-                action = PiaVpnService.ACTION_DISCONNECT
-            }
-            startService(intent)
-            pendingLease = null
-            pendingServer = null
-            setConnecting(false)
-            val (_, lastServerId) = readVpnState()
-            writeVpnState(false, lastServerId)
-            connectStatus.text = "Disconnected"
-            updateConnectState()
-        }
+        disconnectButton.setOnClickListener { doDisconnect() }
 
         loginButton.setOnClickListener {
             val username = usernameField.text.toString()
@@ -169,6 +157,14 @@ class MainActivity : Activity() {
         }
 
         connectButton.setOnClickListener {
+            // The hero is a single toggle, like other VPN apps: tap to
+            // connect, tap again to disconnect. No separate button needed.
+            val (live, liveServer, liveAt) = readVpnState()
+            val liveConnected = live && (System.currentTimeMillis() - liveAt < PiaVpnService.ALIVE_FRESH_MS)
+            if (liveConnected && !liveServer.isNullOrEmpty()) {
+                doDisconnect()
+                return@setOnClickListener
+            }
             val entry = selected
             if (entry == null) {
                 connectStatus.text = "Select a server first"
@@ -396,6 +392,7 @@ class MainActivity : Activity() {
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_off)
                 connectButton.isEnabled = current != null && !connecting
+                connectButton.text = "CONNECT"
                 connectButton.setBackgroundResource(R.drawable.hero_off)
                 connectButton.setTextColor(getColor(R.color.pia_accent))
             }
@@ -408,7 +405,8 @@ class MainActivity : Activity() {
                     errorDetail.text = ""
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
-                connectButton.isEnabled = false
+                connectButton.isEnabled = true
+                connectButton.text = "DISCONNECT"
                 connectButton.setBackgroundResource(R.drawable.hero_on)
                 connectButton.setTextColor(getColor(R.color.pia_background))
             }
@@ -422,10 +420,27 @@ class MainActivity : Activity() {
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
                 connectButton.isEnabled = current != null && !connecting
+                connectButton.text = "CONNECT"
                 connectButton.setBackgroundResource(R.drawable.hero_off)
                 connectButton.setTextColor(getColor(R.color.pia_accent))
             }
         }
+    }
+
+    /** Single disconnect path: hero toggle and options button share it. */
+    private fun doDisconnect() {
+        val intent = Intent(this, PiaVpnService::class.java).apply {
+            action = PiaVpnService.ACTION_DISCONNECT
+        }
+        startService(intent)
+        pendingLease = null
+        pendingServer = null
+        setConnecting(false)
+        val (_, lastServerId) = readVpnState()
+        writeVpnState(false, lastServerId)
+        connectStatus.text = "Disconnected"
+        errorDetail.text = ""
+        updateConnectState()
     }
 
     private fun piaPrefs() = getSharedPreferences(PREFS_UI, MODE_PRIVATE)

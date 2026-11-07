@@ -269,7 +269,16 @@ class PiaVpnService : VpnService() {
                 clearAlert()
                 startMonitor(activeBackend, activeTunnel)
             } else {
-                failTraffic(activeBackend, activeTunnel, serverId, "no traffic flows ($trace)")
+                // Handshake counters BEFORE teardown: tx=0 nothing left the
+                // device, tx>0+rx=0 the handshake went unanswered (wrong
+                // endpoint/key), rx>0 the handshake lived and TCP/HTTP died.
+                val counters = try {
+                    val stats = activeBackend.getStatistics(activeTunnel)
+                    "tx=${stats.totalTx()} rx=${stats.totalRx()}"
+                } catch (error: Exception) {
+                    "counters n/a"
+                }
+                failTraffic(activeBackend, activeTunnel, serverId, "no traffic flows ($trace; $counters)")
             }
         } catch (error: Exception) {
             try {
