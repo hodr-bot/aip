@@ -6,19 +6,27 @@
  * script, stores the chosen server id in browser.storage.local, and
  * defaults to the lowest-latency pick when nothing is stored yet.
  * Mirrors ServerCatalog behaviour: lowest known latency wins, unknown
- * latency sorts last, ties break on id. No secrets live here and no
- * credentials are handled in this file.
+ * latency sorts last, ties break on id. Also hosts the minimal PIA
+ * credentials form: username is prefilled on open, both keys are stored
+ * in browser.storage.local on save. No secrets live here and secret
+ * values are never logged.
  *
  * Identifiers favour en-GB spelling throughout.
  */
 
 var STORAGE_KEY_SERVER_ID = 'piaServerId';
+var STORAGE_KEY_USERNAME = 'piaUsername';
+var STORAGE_KEY_PASSWORD = 'piaPassword';
 var MESSAGE_GET_SERVERS = 'pia-get-servers';
 var MESSAGE_SET_SERVER = 'pia-set-selected-server';
 
 var serverListElement = null;
 var statusMessageElement = null;
 var refreshButtonElement = null;
+var credentialsFormElement = null;
+var usernameInputElement = null;
+var passwordInputElement = null;
+var credentialsStatusElement = null;
 var organisedServerEntries = [];
 var selectedServerId = null;
 
@@ -200,10 +208,57 @@ function loadPersistedServerIdSyncFallback() {
   return selectedServerId;
 }
 
+function showCredentialsStatusMessage(text) {
+  if (credentialsStatusElement) {
+    credentialsStatusElement.textContent = text;
+  }
+}
+
+// Prefill the username only; the password field always starts empty.
+function prefillStoredUsername() {
+  return browser.storage.local.get([STORAGE_KEY_USERNAME]).then(function (stored) {
+    var value = stored[STORAGE_KEY_USERNAME] || '';
+    if (usernameInputElement && typeof value === 'string') {
+      usernameInputElement.value = value;
+    }
+  }).catch(function (prefillError) {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[pia] username prefill failed:', prefillError);
+    }
+  });
+}
+
+function saveCredentials(username, password) {
+  var update = {};
+  update[STORAGE_KEY_USERNAME] = username;
+  update[STORAGE_KEY_PASSWORD] = password;
+  return browser.storage.local.set(update);
+}
+
+function handleCredentialsSave(event) {
+  if (event) {
+    event.preventDefault();
+  }
+  var username = usernameInputElement ? usernameInputElement.value : '';
+  var password = passwordInputElement ? passwordInputElement.value : '';
+  return saveCredentials(username, password).then(function () {
+    showCredentialsStatusMessage('Credentials saved.');
+  }).catch(function (saveError) {
+    showCredentialsStatusMessage('Could not save the credentials.');
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[pia] credentials save failed:', saveError);
+    }
+  });
+}
+
 function initialiseServerChoice() {
   serverListElement = document.getElementById('serverList');
   statusMessageElement = document.getElementById('statusMessage');
   refreshButtonElement = document.getElementById('refreshButton');
+  credentialsFormElement = document.getElementById('credentialsForm');
+  usernameInputElement = document.getElementById('piaUsernameInput');
+  passwordInputElement = document.getElementById('piaPasswordInput');
+  credentialsStatusElement = document.getElementById('credentialsStatusMessage');
   if (!serverListElement || !statusMessageElement) {
     return;
   }
@@ -212,6 +267,12 @@ function initialiseServerChoice() {
       refreshOrganisedList();
     });
   }
+  if (credentialsFormElement) {
+    credentialsFormElement.addEventListener('submit', function (event) {
+      handleCredentialsSave(event);
+    });
+  }
+  prefillStoredUsername();
   // Prefer the persisted choice already in storage so the lowest-latency
   // default only applies when nothing was stored before.
   loadPersistedServerId().then(function (storedId) {

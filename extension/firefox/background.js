@@ -232,6 +232,21 @@ function readCredentialsOnce() {
     });
 }
 
+// Drop the credential cache when the popup saves new values so the next
+// connect uses them without a background restart.
+if (typeof browser !== 'undefined' && browser.storage && browser.storage.onChanged) {
+  browser.storage.onChanged.addListener(function (changes, areaName) {
+    if (areaName !== 'local') {
+      return;
+    }
+    if ((changes && STORAGE_KEYS.username in changes) ||
+        (changes && STORAGE_KEYS.password in changes)) {
+      cachedCredentials = null;
+      credentialsInitialised = false;
+    }
+  });
+}
+
 function readExtensionSettings() {
   return browser.storage.local.get([
     STORAGE_KEYS.proxyHost,
