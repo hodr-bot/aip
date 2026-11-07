@@ -50,3 +50,12 @@ with `javax.net.ssl.SSLSocket`: TLS 1.2, short cipher list, then a
 SHA-256 leaf pin passed as `-Dpia.leafPin=...`. The core stays
 untouched; only the platform `HttpPort` adapter constrains the TLS
 stack, which is exactly where this belongs.
+
+`LocalAddKeyStub` (scratch, not shipped) is a localhost TLS server on
+127.0.0.1:1337 serving one canned `addKey` OK reply. Run it, then run
+`LiveProof STUB x <pubkey>` with `-Dpia.leafPin=<stub cert sha256>`:
+the core's URL building, percent-encoding and JSON parsing are
+exercised end to end with zero PIA contact. Verified 2026-11-07: the
+stub received
+`GET /addKey?pt=dummy-token&pubkey=PUBKEY%3A...%2B...%3D` and the core
+parsed back peer IP, server key (with raw `+/=` chars) and endpoint.
