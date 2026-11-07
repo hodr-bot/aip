@@ -261,6 +261,15 @@ class MainActivity : Activity() {
                 val fetched = catalog.fetchServers()
                 servers = fetched
                 runOnUiThread {
+                    if (selected == null) {
+                        // Preselect the last used server so one tap connects.
+                        val lastId = tokenStore.loadLastServerId()
+                        val last = fetched.firstOrNull { it.id == lastId }
+                        if (last != null) {
+                            selected = last
+                            updateConnectState()
+                        }
+                    }
                     selectedStatus.text = when {
                         fetched.isEmpty() -> "No servers"
                         selected != null -> "Selected: ${ServerLabels.label(selected!!)}"

@@ -284,37 +284,36 @@ class PiaVpnService : VpnService() {
      * flows; transport exceptions mean "tunnel up, internet dead".
      */
     private fun verifyTraffic(): Boolean {
-        // First attempt is quick (fast path when the network is healthy);
-        // the second gets full timeouts before we declare "no traffic".
-        val timeouts = listOf(5_000 to 8_000, 10_000 to 15_000)
-        for ((connectMs, readMs) in timeouts) {
-            var connection: HttpsURLConnection? = null
-            try {
-                val url = java.net.URL("https://www.privateinternetaccess.com/")
-                connection = url.openConnection() as HttpsURLConnection
-                connection.requestMethod = "GET"
-                connection.connectTimeout = connectMs
-                connection.readTimeout = readMs
-                connection.instanceFollowRedirects = false
-                connection.responseCode
-                val buffer = ByteArray(8192)
-                var total = 0
-                val input = connection.inputStream
-                while (total < 65_536) {
-                    val read = input.read(buffer)
-                    if (read < 0) {
-                        break
-                    }
-                    total += read
+        // Single attempt with honest timeouts. A doomed quick-first attempt
+        // only adds its own timeout on slow networks before the real one.
+        var connection: HttpsURLConnection? = null
+        try {
+            val url = java.net.URL("https://www.privateinternetaccess.com/")
+            connection = url.openConnection() as HttpsURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 12_000
+            connection.readTimeout = 20_000
+            connection.instanceFollowRedirects = false
+            connection.responseCode
+            val buffer = ByteArray(8192)
+            var total = 0
+            val input = connection.inputStream
+            // 8KB cap: several full-size packets prove real browsing while
+            // finishing fast on slow links; 64KB only made slow nets slower.
+            while (total < 8192) {
+                val read = input.read(buffer)
+                if (read < 0) {
+                    break
                 }
-                if (total >= 1024) {
-                    return true
-                }
-            } catch (ignored: Exception) {
-                // Try once more, then report no traffic.
-            } finally {
-                connection?.disconnect()
+                total += read
             }
+            if (total >= 1024) {
+                return true
+            }
+        } catch (ignored: Exception) {
+            // No traffic through the tunnel.
+        } finally {
+            connection?.disconnect()
         }
         return false
     }
