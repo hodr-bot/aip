@@ -356,7 +356,11 @@ class MainActivity : Activity() {
 
     /** Connect button + status text follow the persisted vpn state. */
     private fun updateConnectState() {
-        val (connected, serverId) = readVpnState()
+        val (stored, serverId, aliveAt) = readVpnState()
+        // The service heartbeats every 5s. A "connected" flag with a stale
+        // heartbeat means the process died without cleanup: say so honestly
+        // instead of showing a fake "Connecté".
+        val connected = stored && (System.currentTimeMillis() - aliveAt < PiaVpnService.ALIVE_FRESH_MS)
         val current = selected
         val connectedTitle = serverId?.let { id ->
             servers.firstOrNull { it.id == id }?.let { ServerLabels.label(it) }
@@ -390,9 +394,13 @@ class MainActivity : Activity() {
 
     private fun piaPrefs() = getSharedPreferences(PREFS_UI, MODE_PRIVATE)
 
-    private fun readVpnState(): Pair<Boolean, String?> {
+    private fun readVpnState(): Triple<Boolean, String?, Long> {
         val prefs = getSharedPreferences(PREFS_STATE, MODE_PRIVATE)
-        return prefs.getBoolean(KEY_CONNECTED, false) to prefs.getString(KEY_SERVER_ID, null)
+        return Triple(
+            prefs.getBoolean(KEY_CONNECTED, false),
+            prefs.getString(KEY_SERVER_ID, null),
+            prefs.getLong(KEY_ALIVE_AT, 0L),
+        )
     }
 
     private fun readLastError(): String? =
@@ -472,6 +480,7 @@ class MainActivity : Activity() {
         private const val KEY_CONNECTED = "connected"
         private const val KEY_SERVER_ID = "serverId"
         private const val KEY_LAST_ERROR = "lastError"
+        private const val KEY_ALIVE_AT = "aliveAt"
 
         private const val PREFS_UI = "pia-prefs"
         private const val KEY_ALLOW_LAN = "allowLan"

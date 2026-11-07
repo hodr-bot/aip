@@ -53,6 +53,10 @@ class PiaVpnService : VpnService() {
         private const val STATE_CONNECTED = "connected"
         private const val STATE_SERVER_ID = "serverId"
         private const val STATE_LAST_ERROR = "lastError"
+        private const val STATE_ALIVE_AT = "aliveAt"
+
+        /** Freshness window: the service heartbeats every 5s. */
+        const val ALIVE_FRESH_MS = 20_000L
         const val FALLBACK_DNS = "10.0.0.243"
 
         fun startAction(
@@ -90,6 +94,18 @@ class PiaVpnService : VpnService() {
 
     @Volatile
     private var activeServerId: String? = null
+
+    @Volatile
+    private var monitor: Thread? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        // A fresh process means no live tunnel: a previous process may have
+        // been killed without onDestroy, leaving a stale "connected" behind.
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+            .putBoolean(STATE_CONNECTED, false)
+            .apply()
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_DISCONNECT) {
@@ -233,21 +249,9 @@ class PiaVpnService : VpnService() {
             // traffic flows through the tunnel; otherwise tear down loudly.
             if (verifyTraffic()) {
                 writeState(true, serverId, null)
+                startMonitor(activeBackend, activeTunnel)
             } else {
-                try {
-                    activeBackend.setState(activeTunnel, Tunnel.State.DOWN, null)
-                } catch (ignored: Exception) {
-                    // Best-effort teardown; nothing secret to report.
-                }
-                backend = null
-                tunnel = null
-                val reason = "the tunnel came up yet nothing flows through it"
-                writeState(false, serverId, reason)
-                postAlert(
-                    "AIP tunnel down",
-                    "Connected but no traffic: $reason",
-                )
-                stopSelf()
+                failTraffic(activeBackend, activeTunnel, serverId, "the tunnel came up yet nothing flows through it")
             }
         } catch (error: Exception) {
             try {
@@ -265,10 +269,11 @@ class PiaVpnService : VpnService() {
     }
 
     /**
-     * Prove real traffic flows through the tunnel: a small HEAD request to
-     * the PIA site (DNS + TCP + TLS through the TUN interface). Two tries,
-     * short timeouts. Any HTTP response at all (even an error status) proves
-     * traffic flows; only transport exceptions mean "tunnel up, internet dead".
+     * Prove real traffic flows through the tunnel: GET the PIA homepage and
+     * read the body (DNS + TCP + TLS + multi-kilobyte packets through the
+     * TUN interface). A bare HEAD only proves small packets; full-page GETs
+     * prove real browsing works. Any HTTP response with a body means traffic
+     * flows; transport exceptions mean "tunnel up, internet dead".
      */
     private fun verifyTraffic(): Boolean {
         repeat(2) {
@@ -276,12 +281,24 @@ class PiaVpnService : VpnService() {
             try {
                 val url = java.net.URL("https://www.privateinternetaccess.com/")
                 connection = url.openConnection() as HttpsURLConnection
-                connection.requestMethod = "HEAD"
+                connection.requestMethod = "GET"
                 connection.connectTimeout = 10_000
-                connection.readTimeout = 10_000
+                connection.readTimeout = 15_000
                 connection.instanceFollowRedirects = false
                 connection.responseCode
-                return true
+                val buffer = ByteArray(8192)
+                var total = 0
+                val input = connection.inputStream
+                while (total < 65_536) {
+                    val read = input.read(buffer)
+                    if (read < 0) {
+                        break
+                    }
+                    total += read
+                }
+                if (total >= 1024) {
+                    return true
+                }
             } catch (ignored: Exception) {
                 // Try once more, then report no traffic.
             } finally {
@@ -296,7 +313,79 @@ class PiaVpnService : VpnService() {
             .putBoolean(STATE_CONNECTED, connected)
             .putString(STATE_SERVER_ID, serverId)
             .putString(STATE_LAST_ERROR, lastError)
+            .putLong(STATE_ALIVE_AT, System.currentTimeMillis())
             .apply()
+    }
+
+    private fun writeAlive() {
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+            .putLong(STATE_ALIVE_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    /**
+     * Watchdog: heartbeat every 5s so the UI can tell a live tunnel from a
+     * stale "connected" flag, plus a full traffic re-proof every minute. Any
+     * failure tears the tunnel down loudly instead of lying.
+     */
+    private fun startMonitor(activeBackend: GoBackend, activeTunnel: PiaTunnel) {
+        stopMonitor()
+        val watchedServer = activeServerId
+        val thread = Thread {
+            var lastVerify = System.currentTimeMillis()
+            while (!Thread.currentThread().isInterrupted) {
+                try {
+                    Thread.sleep(5_000)
+                } catch (interrupted: InterruptedException) {
+                    break
+                }
+                try {
+                    writeAlive()
+                    val now = System.currentTimeMillis()
+                    if (now - lastVerify >= 60_000) {
+                        lastVerify = now
+                        if (!verifyTraffic()) {
+                            failTraffic(
+                                activeBackend,
+                                activeTunnel,
+                                watchedServer,
+                                "traffic stopped flowing through the live tunnel",
+                            )
+                            break
+                        }
+                    }
+                } catch (ignored: Exception) {
+                    // Keep watching; next tick retries.
+                }
+            }
+        }
+        thread.isDaemon = true
+        thread.start()
+        monitor = thread
+    }
+
+    private fun stopMonitor() {
+        monitor?.interrupt()
+        monitor = null
+    }
+
+    private fun failTraffic(
+        activeBackend: GoBackend,
+        activeTunnel: PiaTunnel,
+        serverId: String?,
+        reason: String,
+    ) {
+        stopMonitor()
+        try {
+            activeBackend.setState(activeTunnel, Tunnel.State.DOWN, null)
+        } catch (ignored: Exception) {
+            // Best-effort teardown; nothing secret to report.
+        }
+        backend = null
+        tunnel = null
+        writeState(false, serverId, reason)
+        postAlert("AIP tunnel down", "Connected but no traffic: $reason")
+        stopSelf()
     }
 
     /**
@@ -329,6 +418,7 @@ class PiaVpnService : VpnService() {
     }
 
     private fun bringDown() {
+        stopMonitor()
         val activeBackend = backend
         val activeTunnel = tunnel
         backend = null
