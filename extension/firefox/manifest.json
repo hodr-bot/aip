@@ -3,6 +3,7 @@
   "name": "PIA Core",
   "version": "0.1.0",
   "description": "PIA proxy with shared core: 12h token refresh, fail-closed kill switch.",
+  "incognito": "spanning",
   "background": {
     "scripts": [
       "vendor/kotlin-kotlin-stdlib.js",

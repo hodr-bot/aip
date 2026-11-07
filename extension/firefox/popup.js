@@ -1,24 +1,20 @@
 'use strict';
 
-/* Firefox MV2 popup script (plain JS, no bundler).
- *
- * Lists servers from the live server-list endpoint through the background
- * script, stores the chosen server id in browser.storage.local, and
- * defaults to the lowest-latency pick when nothing is stored yet.
- * Mirrors ServerCatalog behaviour: lowest known latency wins, unknown
- * latency sorts last, ties break on id. Also hosts the minimal PIA
- * credentials form: username is prefilled on open, both keys are stored
- * in browser.storage.local on save. No secrets live here and secret
- * values are never logged.
- *
- * Identifiers favour en-GB spelling throughout.
+/* Popup logic: tabbed pages (Status, Servers, Kill switch, Account) in the
+ * same dark style as the Android app (#101410 / #1A211A / #7ED321).
+ * The background owns all proxy state; this page only renders it.
  */
 
-var STORAGE_KEY_SERVER_ID = 'piaServerId';
-var STORAGE_KEY_USERNAME = 'piaUsername';
-var STORAGE_KEY_PASSWORD = 'piaPassword';
 var MESSAGE_GET_SERVERS = 'pia-get-servers';
 var MESSAGE_SET_SERVER = 'pia-set-selected-server';
+var MESSAGE_GET_STATUS = 'pia-get-status';
+var MESSAGE_SET_KILLSWITCH = 'pia-set-killswitch';
+var MESSAGE_RECONNECT = 'pia-reconnect';
+
+var STORAGE_KEY_USERNAME = 'piaUsername';
+var STORAGE_KEY_PASSWORD = 'piaPassword';
+var STORAGE_KEY_PROXY_USERNAME = 'piaProxyUsername';
+var STORAGE_KEY_PROXY_PASSWORD = 'piaProxyPassword';
 
 var serverListElement = null;
 var statusMessageElement = null;
@@ -27,44 +23,40 @@ var credentialsFormElement = null;
 var usernameInputElement = null;
 var passwordInputElement = null;
 var credentialsStatusElement = null;
-var organisedServerEntries = [];
+var proxyUsernameInputElement = null;
+var proxyPasswordInputElement = null;
+var heroStateElement = null;
+var statusServerElement = null;
+var statusProxyElement = null;
+var statusProxyAuthElement = null;
+var statusTokenElement = null;
+var statusPageMessageElement = null;
+var reconnectButtonElement = null;
+var killswitchToggleElement = null;
+var killswitchStateElement = null;
+var killswitchExplainElement = null;
+var killswitchWarnElement = null;
+var headerDotElement = null;
+
 var selectedServerId = null;
 
-function compareOrganisedServers(a, b) {
-  var aKnown = (typeof a.latencyMs === 'number');
-  var bKnown = (typeof b.latencyMs === 'number');
-  if (aKnown && !bKnown) {
-    return -1;
+function formatLatency(latencyMs) {
+  if (typeof latencyMs !== 'number') {
+    return 'latency unknown';
   }
-  if (!aKnown && bKnown) {
-    return 1;
-  }
-  if (aKnown && bKnown && a.latencyMs !== b.latencyMs) {
-    return a.latencyMs - b.latencyMs;
-  }
-  if (a.id < b.id) {
-    return -1;
-  }
-  if (a.id > b.id) {
-    return 1;
-  }
-  return 0;
+  return Math.round(latencyMs) + ' ms';
 }
 
-// Favour the lowest-latency entry; unknown latency sorts last.
-function favourLowestLatencyServer(servers) {
-  if (!servers || !servers.length) {
-    return null;
+function formatTokenRemaining(totalSeconds) {
+  if (typeof totalSeconds !== 'number' || totalSeconds <= 0) {
+    return 'expired';
   }
-  var organised = servers.slice().sort(compareOrganisedServers);
-  return organised[0];
-}
-
-function formatLatencyLabel(latencyMs) {
-  if (typeof latencyMs === 'number' && isFinite(latencyMs)) {
-    return Math.round(latencyMs) + ' ms';
+  var hours = Math.floor(totalSeconds / 3600);
+  if (hours >= 1) {
+    return 'valid ' + hours + 'h';
   }
-  return 'latency unknown';
+  var minutes = Math.floor(totalSeconds / 60);
+  return 'valid ' + minutes + 'm';
 }
 
 function showStatusMessage(text) {
@@ -74,7 +66,6 @@ function showStatusMessage(text) {
 }
 
 function clearOrganisedList() {
-  organisedServerEntries = [];
   if (serverListElement) {
     while (serverListElement.firstChild) {
       serverListElement.removeChild(serverListElement.firstChild);
@@ -82,105 +73,141 @@ function clearOrganisedList() {
   }
 }
 
-function createServerButton(entry, isSelected) {
-  var item = document.createElement('li');
-  var button = document.createElement('button');
-  button.type = 'button';
-  button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-  button.dataset.serverId = entry.id;
-
-  var label = document.createElement('span');
-  label.textContent = entry.id + ' — ' + entry.hostname;
-
-  var latency = document.createElement('span');
-  latency.className = 'latency';
-  latency.textContent = formatLatencyLabel(entry.latencyMs);
-
-  button.appendChild(label);
-  button.appendChild(latency);
-  button.addEventListener('click', function () {
-    handleServerChoice(entry.id);
-  });
-  item.appendChild(button);
-  return item;
+// Sort helper shared with ServerCatalog: lowest known latency first,
+// unmeasured last.
+function compareLatencyThenTitle(left, right) {
+  var leftKnown = (typeof left.latencyMs === 'number');
+  var rightKnown = (typeof right.latencyMs === 'number');
+  if (leftKnown && !rightKnown) {
+    return -1;
+  }
+  if (!leftKnown && rightKnown) {
+    return 1;
+  }
+  if (leftKnown && rightKnown && left.latencyMs !== right.latencyMs) {
+    return left.latencyMs - right.latencyMs;
+  }
+  if (left.displayTitle < right.displayTitle) {
+    return -1;
+  }
+  if (left.displayTitle > right.displayTitle) {
+    return 1;
+  }
+  return 0;
 }
 
-function renderOrganisedServers(servers, currentSelection) {
-  clearOrganisedList();
-  organisedServerEntries = servers.slice().sort(compareOrganisedServers);
-  selectedServerId = currentSelection;
-  organisedServerEntries.forEach(function (entry) {
-    var isSelected = (entry.id === currentSelection);
-    serverListElement.appendChild(createServerButton(entry, isSelected));
+function orderServersByLatency(servers) {
+  return servers.slice().sort(compareLatencyThenTitle);
+}
+
+function decorateServerEntry(server) {
+  return {
+    id: server.id,
+    hostname: server.hostname,
+    latencyMs: (typeof server.latencyMs === 'number') ? server.latencyMs : null,
+    displayTitle: server.id + ' · ' + server.hostname
+  };
+}
+
+function organiseServers(servers) {
+  return orderServersByLatency(servers.map(decorateServerEntry));
+}
+
+function fetchServers() {
+  return browser.runtime.sendMessage({ type: MESSAGE_GET_SERVERS }).then(function (response) {
+    return {
+      servers: response.servers,
+      selectedServerId: response.selectedServerId
+    };
   });
 }
 
 function loadPersistedServerId() {
-  return browser.storage.local.get([STORAGE_KEY_SERVER_ID]).then(function (stored) {
-    var value = stored[STORAGE_KEY_SERVER_ID] || null;
+  return browser.storage.local.get([STORAGE_KEY_USERNAME, 'piaServerId']).then(function (stored) {
+    var value = stored.piaServerId || null;
     return (typeof value === 'string' && value) ? value : null;
   });
 }
 
 function persistSelectedServerId(serverId) {
-  var update = {};
-  update[STORAGE_KEY_SERVER_ID] = serverId;
-  return browser.storage.local.set(update).then(function () {
-    return serverId;
+  return browser.runtime.sendMessage({ type: MESSAGE_SET_SERVER, serverId: serverId });
+}
+
+function setSelectedServer(serverId) {
+  selectedServerId = serverId;
+  return persistSelectedServerId(serverId).then(function (response) {
+    return response.selectedServerId;
   });
 }
 
-function requestServersThroughBackground() {
-  return browser.runtime.sendMessage({ type: MESSAGE_GET_SERVERS }).then(function (response) {
-    var servers = (response && response.servers) || [];
-    var storedId = (response && response.selectedServerId) || null;
-    return { servers: servers, selectedServerId: storedId };
+function selectServer(serverId) {
+  return setSelectedServer(serverId).then(function (effectiveId) {
+    refreshOrganisedList();
+    refreshStatusPage();
+    return effectiveId;
+  }).catch(function (selectError) {
+    showStatusMessage('Could not select that server.');
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[pia] server select failed:', selectError);
+    }
   });
 }
 
-function notifyBackgroundOfChoice(serverId) {
-  return browser.runtime.sendMessage({ type: MESSAGE_SET_SERVER, serverId: serverId })
-    .then(function () { return serverId; }, function () { return serverId; });
-}
-
-function handleServerChoice(serverId) {
-  showStatusMessage('Selecting ' + serverId + '…');
-  return persistSelectedServerId(serverId)
-    .then(function (savedId) {
-      return notifyBackgroundOfChoice(savedId);
-    })
-    .then(function (savedId) {
-      renderOrganisedServers(organisedServerEntries, savedId);
-      showStatusMessage('Selected server: ' + savedId);
-    })
-    .catch(function (choiceError) {
-      showStatusMessage('Could not save the server choice.');
-      if (typeof console !== 'undefined' && console.warn) {
-        console.warn('[pia] server choice failed:', choiceError);
-      }
-    });
-}
-
-function centraliseDefaultSelection(servers, storedId) {
-  if (storedId) {
-    return Promise.resolve(storedId);
+function createServerRow(server, isSelected) {
+  var row = document.createElement('button');
+  row.type = 'button';
+  var label = document.createElement('span');
+  label.textContent = server.displayTitle;
+  var latency = document.createElement('span');
+  latency.className = 'latency';
+  latency.textContent = formatLatency(server.latencyMs);
+  row.appendChild(label);
+  row.appendChild(latency);
+  if (isSelected) {
+    row.classList.add('selected');
   }
-  var favourite = favourLowestLatencyServer(servers);
-  if (!favourite) {
+  row.addEventListener('click', function () {
+    selectServer(server.id);
+  });
+  return row;
+}
+
+function renderOrganisedServers(servers, effectiveSelectedId) {
+  clearOrganisedList();
+  organiseServers(servers).forEach(function (server) {
+    serverListElement.appendChild(createServerRow(server, server.id === effectiveSelectedId));
+  });
+}
+
+// Prefer the stored default and pin it to the top so one tap switches.
+function centraliseDefaultSelection(servers, storedId) {
+  if (!servers.length) {
     return Promise.resolve(null);
   }
-  return persistSelectedServerId(favourite.id);
+  var known = null;
+  for (var i = 0; i < servers.length; i += 1) {
+    if (servers[i].id === storedId) {
+      known = servers[i].id;
+      break;
+    }
+  }
+  if (known) {
+    return Promise.resolve(known);
+  }
+  var fastest = organiseServers(servers)[0];
+  if (!fastest) {
+    return Promise.resolve(null);
+  }
+  return persistSelectedServerId(fastest.id).then(function () {
+    return fastest.id;
+  }).catch(function () {
+    return fastest.id;
+  });
 }
 
 function refreshOrganisedList() {
-  showStatusMessage('Loading servers…');
-  return requestServersThroughBackground().then(function (result) {
-    var servers = result.servers || [];
-    if (!servers.length) {
-      clearOrganisedList();
-      showStatusMessage('The server list is empty.');
-      return;
-    }
+  return fetchServers().then(function (result) {
+    var servers = result.servers;
     var storedId = result.selectedServerId;
     if (!storedId) {
       storedId = loadPersistedServerIdSyncFallback();
@@ -208,18 +235,122 @@ function loadPersistedServerIdSyncFallback() {
   return selectedServerId;
 }
 
+/* ---- Status page ---- */
+
+function fetchStatus() {
+  return browser.runtime.sendMessage({ type: MESSAGE_GET_STATUS });
+}
+
+function renderStatus(status) {
+  var state = 'Off';
+  var cls = '';
+  var dot = '';
+  if (!status.hasCredentials) {
+    state = 'Waiting for credentials';
+  } else if (status.proxyActive) {
+    state = 'Connected';
+    cls = 'on';
+    dot = 'on';
+  } else if (status.blocked) {
+    state = 'Blocked — kill switch';
+    cls = 'blocked';
+    dot = 'blocked';
+  } else if (status.directLanOnly) {
+    state = 'Direct (kill switch off)';
+  }
+  if (heroStateElement) {
+    heroStateElement.textContent = state;
+    heroStateElement.className = 'hero-state' + (cls ? ' ' + cls : '');
+  }
+  if (headerDotElement) {
+    headerDotElement.className = 'dot' + (dot ? ' ' + dot : '');
+  }
+  if (statusServerElement) {
+    statusServerElement.textContent = status.serverId || '–';
+  }
+  if (statusProxyElement) {
+    statusProxyElement.textContent = (status.proxyHost || '–') + ':' + (status.proxyPort || '–');
+  }
+  if (statusProxyAuthElement) {
+    statusProxyAuthElement.textContent = status.hasProxyCredentials ? 'saved' : 'missing — add it in Account';
+  }
+  if (statusTokenElement) {
+    statusTokenElement.textContent = (typeof status.tokenRemainingSec === 'number') ?
+      formatTokenRemaining(status.tokenRemainingSec) : 'none';
+  }
+  renderKillswitch(status);
+}
+
+function refreshStatusPage() {
+  if (statusPageMessageElement) {
+    statusPageMessageElement.textContent = '';
+  }
+  return fetchStatus().then(renderStatus).catch(function (statusError) {
+    if (statusPageMessageElement) {
+      statusPageMessageElement.textContent = 'Could not read the proxy status.';
+    }
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[pia] status load failed:', statusError);
+    }
+  });
+}
+
+/* ---- Kill-switch page ---- */
+
+function renderKillswitch(status) {
+  var enabled = status.killSwitchEnabled !== false;
+  if (killswitchToggleElement) {
+    killswitchToggleElement.checked = enabled;
+  }
+  if (killswitchStateElement) {
+    killswitchStateElement.textContent = enabled ? 'On' : 'Off';
+  }
+  if (killswitchWarnElement) {
+    killswitchWarnElement.style.display = enabled ? 'none' : 'block';
+  }
+  if (killswitchExplainElement) {
+    if (enabled) {
+      killswitchExplainElement.textContent = status.proxyActive ?
+        'Proxy is up. If it drops, every connection outside the proxy is blocked until it recovers.' :
+        'Proxy is down, so nothing leaves this browser right now. Local addresses stay in the bypass list while the proxy is up.';
+    } else {
+      killswitchExplainElement.textContent = 'Proxy failures fall back to a direct connection. Turn it on to block everything instead.';
+    }
+  }
+}
+
+function handleKillswitchToggle() {
+  var enabled = killswitchToggleElement ? killswitchToggleElement.checked : true;
+  return browser.runtime.sendMessage({ type: MESSAGE_SET_KILLSWITCH, enabled: enabled })
+    .then(renderStatus)
+    .catch(function (toggleError) {
+      if (statusPageMessageElement) {
+        statusPageMessageElement.textContent = 'Could not change the kill switch.';
+      }
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[pia] kill switch toggle failed:', toggleError);
+      }
+    });
+}
+
+/* ---- Account page ---- */
+
 function showCredentialsStatusMessage(text) {
   if (credentialsStatusElement) {
     credentialsStatusElement.textContent = text;
   }
 }
 
-// Prefill the username only; the password field always starts empty.
+// Prefill the usernames only; password fields always start empty.
 function prefillStoredUsername() {
-  return browser.storage.local.get([STORAGE_KEY_USERNAME]).then(function (stored) {
+  return browser.storage.local.get([STORAGE_KEY_USERNAME, STORAGE_KEY_PROXY_USERNAME]).then(function (stored) {
     var value = stored[STORAGE_KEY_USERNAME] || '';
     if (usernameInputElement && typeof value === 'string') {
       usernameInputElement.value = value;
+    }
+    var proxyValue = stored[STORAGE_KEY_PROXY_USERNAME] || '';
+    if (proxyUsernameInputElement && typeof proxyValue === 'string') {
+      proxyUsernameInputElement.value = proxyValue;
     }
   }).catch(function (prefillError) {
     if (typeof console !== 'undefined' && console.warn) {
@@ -228,10 +359,12 @@ function prefillStoredUsername() {
   });
 }
 
-function saveCredentials(username, password) {
+function saveCredentials(username, password, proxyUsername, proxyPassword) {
   var update = {};
   update[STORAGE_KEY_USERNAME] = username;
   update[STORAGE_KEY_PASSWORD] = password;
+  update[STORAGE_KEY_PROXY_USERNAME] = proxyUsername;
+  update[STORAGE_KEY_PROXY_PASSWORD] = proxyPassword;
   return browser.storage.local.set(update);
 }
 
@@ -241,8 +374,14 @@ function handleCredentialsSave(event) {
   }
   var username = usernameInputElement ? usernameInputElement.value : '';
   var password = passwordInputElement ? passwordInputElement.value : '';
-  return saveCredentials(username, password).then(function () {
-    showCredentialsStatusMessage('Credentials saved.');
+  var proxyUsername = proxyUsernameInputElement ? proxyUsernameInputElement.value : '';
+  var proxyPassword = proxyPasswordInputElement ? proxyPasswordInputElement.value : '';
+  return saveCredentials(username, password, proxyUsername, proxyPassword).then(function () {
+    showCredentialsStatusMessage('Credentials saved. Connecting…');
+    return browser.runtime.sendMessage({ type: MESSAGE_RECONNECT }).then(function (status) {
+      renderStatus(status);
+      showCredentialsStatusMessage(status.proxyActive ? 'Connected.' : 'Saved. Proxy not up yet.');
+    });
   }).catch(function (saveError) {
     showCredentialsStatusMessage('Could not save the credentials.');
     if (typeof console !== 'undefined' && console.warn) {
@@ -251,7 +390,42 @@ function handleCredentialsSave(event) {
   });
 }
 
-function initialiseServerChoice() {
+function handleReconnect() {
+  if (statusPageMessageElement) {
+    statusPageMessageElement.textContent = 'Reconnecting…';
+  }
+  return browser.runtime.sendMessage({ type: MESSAGE_RECONNECT }).then(function (status) {
+    renderStatus(status);
+    if (statusPageMessageElement) {
+      statusPageMessageElement.textContent = status.proxyActive ? '' : 'Proxy not up yet.';
+    }
+  }).catch(function (reconnectError) {
+    if (statusPageMessageElement) {
+      statusPageMessageElement.textContent = 'Reconnect failed.';
+    }
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[pia] reconnect failed:', reconnectError);
+    }
+  });
+}
+
+/* ---- Tabs + init ---- */
+
+function switchPage(pageId) {
+  var pages = document.querySelectorAll('.page');
+  for (var i = 0; i < pages.length; i += 1) {
+    pages[i].classList.toggle('active', pages[i].id === pageId);
+  }
+  var tabs = document.querySelectorAll('nav button');
+  for (var j = 0; j < tabs.length; j += 1) {
+    tabs[j].classList.toggle('active', tabs[j].getAttribute('data-page') === pageId);
+  }
+  if (pageId === 'pageStatus') {
+    refreshStatusPage();
+  }
+}
+
+function initialisePopup() {
   serverListElement = document.getElementById('serverList');
   statusMessageElement = document.getElementById('statusMessage');
   refreshButtonElement = document.getElementById('refreshButton');
@@ -259,8 +433,28 @@ function initialiseServerChoice() {
   usernameInputElement = document.getElementById('piaUsernameInput');
   passwordInputElement = document.getElementById('piaPasswordInput');
   credentialsStatusElement = document.getElementById('credentialsStatusMessage');
-  if (!serverListElement || !statusMessageElement) {
-    return;
+  proxyUsernameInputElement = document.getElementById('piaProxyUsernameInput');
+  proxyPasswordInputElement = document.getElementById('piaProxyPasswordInput');
+  heroStateElement = document.getElementById('heroState');
+  statusServerElement = document.getElementById('statusServer');
+  statusProxyElement = document.getElementById('statusProxy');
+  statusProxyAuthElement = document.getElementById('statusProxyAuth');
+  statusTokenElement = document.getElementById('statusToken');
+  statusPageMessageElement = document.getElementById('statusPageMessage');
+  reconnectButtonElement = document.getElementById('reconnectButton');
+  killswitchToggleElement = document.getElementById('killswitchToggle');
+  killswitchStateElement = document.getElementById('killswitchState');
+  killswitchExplainElement = document.getElementById('killswitchExplain');
+  killswitchWarnElement = document.getElementById('killswitchWarn');
+  headerDotElement = document.getElementById('headerDot');
+
+  var tabs = document.querySelectorAll('nav button');
+  for (var i = 0; i < tabs.length; i += 1) {
+    (function (tab) {
+      tab.addEventListener('click', function () {
+        switchPage(tab.getAttribute('data-page'));
+      });
+    })(tabs[i]);
   }
   if (refreshButtonElement) {
     refreshButtonElement.addEventListener('click', function () {
@@ -272,7 +466,18 @@ function initialiseServerChoice() {
       handleCredentialsSave(event);
     });
   }
+  if (reconnectButtonElement) {
+    reconnectButtonElement.addEventListener('click', function () {
+      handleReconnect();
+    });
+  }
+  if (killswitchToggleElement) {
+    killswitchToggleElement.addEventListener('change', function () {
+      handleKillswitchToggle();
+    });
+  }
   prefillStoredUsername();
+  refreshStatusPage();
   // Prefer the persisted choice already in storage so the lowest-latency
   // default only applies when nothing was stored before.
   loadPersistedServerId().then(function (storedId) {
@@ -282,5 +487,5 @@ function initialiseServerChoice() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-  initialiseServerChoice();
+  initialisePopup();
 });

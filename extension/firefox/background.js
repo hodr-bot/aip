@@ -59,6 +59,8 @@ var SERVER_LIST_URL = 'https://serverlist.piaservers.net/vpninfo/servers/v6';
 var STORAGE_KEYS = {
   username: 'piaUsername',
   password: 'piaPassword',
+  proxyUsername: 'piaProxyUsername',
+  proxyPassword: 'piaProxyPassword',
   tokenValue: 'piaTokenValue',
   tokenIssuedAt: 'piaTokenIssuedAtSec',
   proxyHost: 'piaProxyHost',
@@ -66,6 +68,10 @@ var STORAGE_KEYS = {
   killSwitchEnabled: 'piaKillSwitchEnabled',
   serverId: 'piaServerId'
 };
+
+// Last verdict applied through applyProxyForVerdict (single choke point),
+// so the popup status page always reports the real proxy state.
+var lastVerdict = 'UNKNOWN';
 
 // Non-secret packaging defaults; the user may override them via storage.
 var DEFAULT_PROXY_HOST = 'proxy-nl.privateinternetaccess.com';
@@ -232,7 +238,62 @@ function readCredentialsOnce() {
     });
 }
 
-// Drop the credential cache when the popup saves new values so the next
+// PIA's SOCKS proxy needs its own generated credentials (the "x" username
+// from the Client Control Panel), which differ from the account login used
+// for the token API. Stored separately; the account login is the fallback.
+var cachedProxyCredentials = null;
+var proxyCredentialsInitialised = false;
+
+// Host currently served by the proxy config; the auth provider only answers
+// challenges from this host while the proxy is active.
+var activeProxyHost = null;
+
+function readProxyCredentialsOnce() {
+  if (proxyCredentialsInitialised) {
+    return Promise.resolve(cachedProxyCredentials);
+  }
+  return browser.storage.local.get([
+    STORAGE_KEYS.proxyUsername,
+    STORAGE_KEYS.proxyPassword,
+    STORAGE_KEYS.username,
+    STORAGE_KEYS.password
+  ]).then(function (stored) {
+    var username = stored[STORAGE_KEYS.proxyUsername] ||
+      stored[STORAGE_KEYS.username] || null;
+    var password = stored[STORAGE_KEYS.proxyPassword] ||
+      stored[STORAGE_KEYS.password] || null;
+    cachedProxyCredentials = { username: username, password: password };
+    proxyCredentialsInitialised = true;
+    return cachedProxyCredentials;
+  });
+}
+
+function provideProxyAuthCredentials(details) {
+  if (lastVerdict !== 'ALLOW_ALL' || !details || details.isProxy !== true) {
+    return {};
+  }
+  var challenger = details.challenger || {};
+  if (activeProxyHost && challenger.host && challenger.host !== activeProxyHost) {
+    return {};
+  }
+  var creds = cachedProxyCredentials;
+  if (!creds || !creds.username || !creds.password) {
+    return {};
+  }
+  return {
+    authCredentials: { username: creds.username, password: creds.password }
+  };
+}
+
+if (typeof browser !== 'undefined' && browser.webRequest && browser.webRequest.onAuthRequired) {
+  browser.webRequest.onAuthRequired.addListener(
+    provideProxyAuthCredentials,
+    { urls: ['<all_urls>'] },
+    ['blocking']
+  );
+}
+
+// Drop the credential caches when the popup saves new values so the next
 // connect uses them without a background restart.
 if (typeof browser !== 'undefined' && browser.storage && browser.storage.onChanged) {
   browser.storage.onChanged.addListener(function (changes, areaName) {
@@ -243,6 +304,13 @@ if (typeof browser !== 'undefined' && browser.storage && browser.storage.onChang
         (changes && STORAGE_KEYS.password in changes)) {
       cachedCredentials = null;
       credentialsInitialised = false;
+    }
+    if ((changes && STORAGE_KEYS.proxyUsername in changes) ||
+        (changes && STORAGE_KEYS.proxyPassword in changes) ||
+        (changes && STORAGE_KEYS.username in changes) ||
+        (changes && STORAGE_KEYS.password in changes)) {
+      cachedProxyCredentials = null;
+      proxyCredentialsInitialised = false;
     }
   });
 }
@@ -415,6 +483,14 @@ function measureServerLatency(hostname, timeoutMs) {
   var started = Date.now();
   var url = 'https://' + hostname + '/';
   var finishOk = function () { return Date.now() - started; };
+  // PIA endpoints refuse HTTP(S) outright, so a *fast* failure still
+  // measures the round trip (TCP refused ~= RTT). Only a full timeout
+  // means unmeasurable. Without this every probe reads null and the
+  // "fastest server" pick degrades to alphabetical order.
+  var finishFailed = function () {
+    var elapsed = Date.now() - started;
+    return (elapsed < timeout) ? elapsed : null;
+  };
   try {
     if (typeof AbortController !== 'undefined') {
       var controller = new AbortController();
@@ -431,7 +507,7 @@ function measureServerLatency(hostname, timeoutMs) {
         return finishOk();
       }, function () {
         clearTimeout(timer);
-        return null;
+        return finishFailed();
       });
     }
   } catch (probeError) {
@@ -447,7 +523,7 @@ function measureServerLatency(hostname, timeoutMs) {
     setTimeout(function () { resolve(null); }, timeout);
   });
   return Promise.race([
-    fetchAttempt.then(function () { return finishOk(); }, function () { return null; }),
+    fetchAttempt.then(function () { return finishOk(); }, function () { return finishFailed(); }),
     timeoutPromise
   ]);
 }
@@ -682,28 +758,39 @@ function disableFailClosedBlocking() {
 }
 
 function applyProxyForVerdict(verdict, settings) {
+  lastVerdict = verdict;
   if (verdict === 'ALLOW_ALL') {
+    // PIA serves a SOCKS5-only proxy on 1080 (no HTTP CONNECT): route via
+    // socks with remote DNS, and let the onAuthRequired provider below feed
+    // the generated proxy credentials to Firefox's auth dialog silently.
+    activeProxyHost = settings.proxyHost;
     disableFailClosedBlocking();
     return browser.proxy.settings.set({
       value: {
         proxyType: 'manual',
-        http: settings.proxyHost + ':' + settings.proxyPort,
-        ssl: settings.proxyHost + ':' + settings.proxyPort,
+        socks: settings.proxyHost + ':' + settings.proxyPort,
         socksVersion: 5,
+        proxyDNS: true,
         passthrough: LAN_BYPASS_LIST.join(', ')
       }
     });
   }
   if (verdict === 'ALLOW_LAN_ONLY') {
     // Direct connection: local addresses stay reachable, tunnel unset.
+    activeProxyHost = null;
     disableFailClosedBlocking();
     return browser.proxy.settings.set({ value: { proxyType: 'none' } });
   }
-  // BLOCK_ALL or anything unrecognised: fail closed. Direct proxy plus a
-  // webRequest guard that cancels every request until recovery.
+  // BLOCK_ALL or anything unrecognised: fail closed. The webRequest guard
+  // goes up FIRST so a proxy.settings failure (e.g. missing private-window
+  // permission) still leaves the browser blocked, never silently direct.
+  activeProxyHost = null;
+  enableFailClosedBlocking();
   return browser.proxy.settings.set({ value: { proxyType: 'none' } })
-    .then(function () {
-      enableFailClosedBlocking();
+    .then(null, function (proxyError) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[pia] proxy.settings.set failed; fail-closed guard stays on:', proxyError);
+      }
     });
 }
 
@@ -712,7 +799,14 @@ function applyProxyForVerdict(verdict, settings) {
 /* ------------------------------------------------------------------ */
 
 function refreshTokenAndApplyProxy() {
-  var settingsHolder = null;
+  // Always re-read credentials fresh: the popup (or a test seed) may have
+  // written new values after the last read, and a stale cache here would
+  // silently keep the extension logged out or unauthenticated.
+  cachedCredentials = null;
+  credentialsInitialised = false;
+  cachedProxyCredentials = null;
+  proxyCredentialsInitialised = false;
+  var settingsHolder = {};
   return readExtensionSettings()
     .then(function (settings) {
       settingsHolder = settings;
@@ -721,7 +815,7 @@ function refreshTokenAndApplyProxy() {
     .then(function (active) {
       settingsHolder.proxyHost = active.proxyHost;
       settingsHolder.serverId = active.serverId;
-      return Promise.all([readCredentialsOnce(), loadStoredToken()]);
+      return Promise.all([readCredentialsOnce(), loadStoredToken(), readProxyCredentialsOnce()]);
     })
     .then(function (results) {
       var credentials = results[0];
@@ -803,7 +897,66 @@ function handlePopupMessage(message) {
       return { selectedServerId: saved };
     });
   }
+  if (message.type === 'pia-get-status') {
+    return getExtensionStatus();
+  }
+  if (message.type === 'pia-set-killswitch') {
+    return setKillSwitchEnabled(message.enabled !== false);
+  }
+  if (message.type === 'pia-reconnect') {
+    return refreshTokenAndApplyProxy().then(function () {
+      return getExtensionStatus();
+    });
+  }
   return Promise.reject(new Error('unrecognised message'));
+}
+
+/* Status + kill-switch control for the popup pages. */
+
+function getExtensionStatus() {
+  return Promise.all([
+    readExtensionSettings(),
+    loadSelectedServerId(),
+    readCredentialsOnce(),
+    readProxyCredentialsOnce(),
+    loadStoredToken()
+  ]).then(function (parts) {
+    var settings = parts[0];
+    var serverId = parts[1];
+    var credentials = parts[2];
+    var proxyCreds = parts[3];
+    var token = parts[4];
+    var remaining = null;
+    if (token && typeof token.issuedAtEpochSec === 'number') {
+      remaining = remainingSec(token.issuedAtEpochSec, nowEpochSec());
+    }
+    return {
+      proxyActive: lastVerdict === 'ALLOW_ALL',
+      blocked: lastVerdict === 'BLOCK_ALL',
+      directLanOnly: lastVerdict === 'ALLOW_LAN_ONLY',
+      killSwitchEnabled: settings.killSwitchEnabled,
+      serverId: serverId || settings.serverId || null,
+      proxyHost: settings.proxyHost,
+      proxyPort: settings.proxyPort,
+      hasCredentials: !!(credentials.username && credentials.password),
+      hasProxyCredentials: !!(proxyCreds.username && proxyCreds.password),
+      tokenRemainingSec: remaining
+    };
+  });
+}
+
+function setKillSwitchEnabled(enabled) {
+  var update = {};
+  update[STORAGE_KEYS.killSwitchEnabled] = enabled !== false;
+  return browser.storage.local.set(update).then(function () {
+    // The storage watcher also triggers a refresh; run one directly so
+    // the popup gets the fresh status without waiting for it.
+    return refreshTokenAndApplyProxy().then(function () {
+      return getExtensionStatus();
+    }, function () {
+      return getExtensionStatus();
+    });
+  });
 }
 
 if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessage) {

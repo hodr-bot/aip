@@ -2,40 +2,264 @@
 <html lang="en-GB">
 <head>
   <meta charset="utf-8">
-  <title>PIA Core — Server Choice</title>
   <style>
-    body { font-family: sans-serif; margin: 12px; min-width: 280px; color: #222; }
-    h1 { font-size: 14px; margin: 0 0 8px; }
-    #statusMessage { font-size: 12px; margin: 0 0 8px; min-height: 1.2em; }
-    #serverList { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
-    #serverList li { margin: 0; padding: 0; }
-    #serverList button { display: flex; justify-content: space-between; width: 100%; margin: 2px 0; padding: 6px 8px; font-size: 12px; text-align: left; cursor: pointer; }
-    #serverList button[aria-pressed="true"] { font-weight: bold; }
-    #refreshButton { margin-top: 8px; font-size: 12px; }
-    #credentialsHeading { font-size: 13px; margin: 0 0 6px; }
-    #credentialsForm label { display: block; font-size: 12px; margin-top: 6px; }
-    #credentialsForm input { display: block; width: 100%; box-sizing: border-box; margin-top: 2px; padding: 4px 6px; font-size: 12px; }
-    #saveCredentialsButton { margin-top: 8px; font-size: 12px; }
-    #credentialsStatusMessage { font-size: 12px; margin: 6px 0 10px; min-height: 1.2em; }
-    .latency { margin-left: 8px; white-space: nowrap; }
+    :root {
+      --pia-background: #101410;
+      --pia-surface: #1A211A;
+      --pia-accent: #7ED321;
+      --pia-text: #E8F0E4;
+      --pia-muted: #9DB09A;
+      --pia-error: #E57373;
+    }
+    * { box-sizing: border-box; }
+    body {
+      width: 360px;
+      margin: 0;
+      padding: 12px;
+      background: var(--pia-background);
+      color: var(--pia-text);
+      font: 13px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    h1 {
+      font-size: 15px;
+      margin: 0 0 10px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--pia-muted);
+      flex: none;
+    }
+    .dot.on { background: var(--pia-accent); }
+    .dot.blocked { background: var(--pia-error); }
+    nav {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+    nav button {
+      flex: 1;
+      padding: 7px 2px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--pia-muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    nav button.active {
+      background: var(--pia-surface);
+      color: var(--pia-accent);
+      border-color: #2c3a2c;
+    }
+    .page { display: none; }
+    .page.active { display: block; }
+    .card {
+      background: var(--pia-surface);
+      border: 1px solid #2c3a2c;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .hero-state {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0 0 4px 0;
+    }
+    .hero-state.on { color: var(--pia-accent); }
+    .hero-state.blocked { color: var(--pia-error); }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 3px 0;
+      color: var(--pia-muted);
+    }
+    .row b { color: var(--pia-text); font-weight: 600; }
+    button.primary {
+      width: 100%;
+      margin-top: 8px;
+      padding: 9px;
+      border: none;
+      border-radius: 8px;
+      background: var(--pia-accent);
+      color: #101410;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button.ghost {
+      width: 100%;
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px solid #2c3a2c;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--pia-text);
+      cursor: pointer;
+    }
+    #serverList {
+      max-height: 260px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    #serverList button {
+      text-align: left;
+      padding: 8px 10px;
+      border: 1px solid #2c3a2c;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--pia-text);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    #serverList button.selected {
+      border-color: var(--pia-accent);
+      color: var(--pia-accent);
+    }
+    #serverList .latency { color: var(--pia-muted); font-size: 12px; }
+    #serverList button.selected .latency { color: var(--pia-accent); }
+    .status-line { color: var(--pia-muted); font-size: 12px; min-height: 18px; }
+    label.field { display: block; margin-bottom: 8px; }
+    label.field span { display: block; color: var(--pia-muted); margin-bottom: 4px; }
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #2c3a2c;
+      border-radius: 8px;
+      background: var(--pia-background);
+      color: var(--pia-text);
+    }
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .switch {
+      position: relative;
+      width: 46px;
+      height: 26px;
+      flex: none;
+      cursor: pointer;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      inset: 0;
+      border-radius: 13px;
+      background: #3a4a3a;
+      transition: background 0.15s;
+    }
+    .slider:before {
+      content: "";
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      left: 3px;
+      top: 3px;
+      border-radius: 50%;
+      background: var(--pia-muted);
+      transition: transform 0.15s, background 0.15s;
+    }
+    .switch input:checked + .slider { background: #3f5a24; }
+    .switch input:checked + .slider:before {
+      transform: translateX(20px);
+      background: var(--pia-accent);
+    }
+    .warn {
+      border: 1px solid var(--pia-error);
+      color: var(--pia-error);
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-top: 8px;
+    }
+    .ok-note { color: var(--pia-muted); font-size: 12px; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <h1>PIA Core — Server Choice</h1>
-  <section aria-labelledby="credentialsHeading">
-    <h2 id="credentialsHeading">PIA credentials</h2>
-    <form id="credentialsForm">
-      <label for="piaUsernameInput">Username</label>
-      <input id="piaUsernameInput" type="text" autocomplete="username" />
-      <label for="piaPasswordInput">Password</label>
-      <input id="piaPasswordInput" type="password" autocomplete="current-password" />
-      <button id="saveCredentialsButton" type="submit">Save credentials</button>
-      <p id="credentialsStatusMessage" role="status"></p>
-    </form>
+  <h1><span class="dot" id="headerDot"></span>AIP VPN</h1>
+  <nav>
+    <button data-page="pageStatus" class="active">Status</button>
+    <button data-page="pageServers">Servers</button>
+    <button data-page="pageKillswitch">Kill switch</button>
+    <button data-page="pageAccount">Account</button>
+  </nav>
+
+  <section class="page active" id="pageStatus">
+    <div class="card">
+      <p class="hero-state" id="heroState">Checking…</p>
+      <div class="row"><span>Server</span><b id="statusServer">–</b></div>
+      <div class="row"><span>Proxy</span><b id="statusProxy">–</b></div>
+      <div class="row"><span>Proxy login</span><b id="statusProxyAuth">–</b></div>
+      <div class="row"><span>Token</span><b id="statusToken">–</b></div>
+      <button class="primary" id="reconnectButton">Reconnect</button>
+    </div>
+    <div class="status-line" id="statusPageMessage"></div>
   </section>
-  <p id="statusMessage" role="status">Loading servers…</p>
-  <ul id="serverList"></ul>
-  <button id="refreshButton" type="button">Refresh list</button>
+
+  <section class="page" id="pageServers">
+    <div class="card">
+      <button class="ghost" id="refreshButton" style="margin-top:0">Refresh list</button>
+      <div style="height:8px"></div>
+      <div id="serverList"></div>
+    </div>
+    <div class="status-line" id="statusMessage"></div>
+  </section>
+
+  <section class="page" id="pageKillswitch">
+    <div class="card">
+      <div class="switch-row">
+        <div>
+          <b>Kill switch</b>
+          <div class="ok-note" id="killswitchState" style="margin-top:2px">Loading…</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="killswitchToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="ok-note" id="killswitchExplain"></div>
+      <div class="warn" id="killswitchWarn" style="display:none">
+        Kill switch is off: if the proxy drops, traffic goes out direct.
+        No warning is shown elsewhere.
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="pageAccount">
+    <div class="card">
+      <form id="credentialsForm">
+        <label class="field">
+          <span>PIA username</span>
+          <input type="text" id="piaUsernameInput" autocomplete="username">
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="piaPasswordInput" autocomplete="current-password">
+        </label>
+        <label class="field">
+          <span>Proxy username (generated “x…” in the PIA panel)</span>
+          <input type="text" id="piaProxyUsernameInput" autocomplete="username" placeholder="x1234567">
+        </label>
+        <label class="field">
+          <span>Proxy password (generated, differs from account)</span>
+          <input type="password" id="piaProxyPasswordInput" autocomplete="current-password">
+        </label>
+        <button class="primary" type="submit">Save and connect</button>
+      </form>
+    </div>
+    <div class="status-line" id="credentialsStatusMessage"></div>
+  </section>
+
   <script src="popup.js"></script>
 </body>
 </html>
