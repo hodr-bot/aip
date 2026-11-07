@@ -267,7 +267,7 @@ class PiaVpnService : VpnService() {
                 clearAlert()
                 startMonitor(activeBackend, activeTunnel)
             } else {
-                failTraffic(activeBackend, activeTunnel, serverId, "the tunnel came up yet nothing flows through it")
+                failTraffic(activeBackend, activeTunnel, serverId, "no traffic flows through the tunnel")
             }
         } catch (error: Exception) {
             try {
@@ -444,7 +444,7 @@ class PiaVpnService : VpnService() {
         }
         val notification: Notification = Notification.Builder(this, ALERT_CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(text)
+            .setContentText(if (text.length > 140) text.take(137) + "..." else text)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentIntent(openAppIntent())
             .build()
