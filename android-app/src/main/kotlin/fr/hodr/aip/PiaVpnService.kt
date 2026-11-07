@@ -98,6 +98,9 @@ class PiaVpnService : VpnService() {
     @Volatile
     private var monitor: Thread? = null
 
+    @Volatile
+    private var trafficStalled = false
+
     override fun onCreate() {
         super.onCreate()
         // A fresh process means no live tunnel: a previous process may have
@@ -142,6 +145,13 @@ class PiaVpnService : VpnService() {
         super.onDestroy()
     }
 
+    private fun openAppIntent(): PendingIntent = PendingIntent.getActivity(
+        this,
+        0,
+        packageManager.getLaunchIntentForPackage(packageName),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
     private fun goForeground() {
         val manager = getSystemService(NotificationManager::class.java)
         // Drop the legacy "PIA VPN" channel name; the mandatory sticky
@@ -157,12 +167,7 @@ class PiaVpnService : VpnService() {
                 ),
             )
         }
-        val openApp = PendingIntent.getActivity(
-            this,
-            0,
-            packageManager.getLaunchIntentForPackage(packageName),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val openApp = openAppIntent()
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("AIP VPN")
             .setContentText("VPN active")
@@ -249,6 +254,7 @@ class PiaVpnService : VpnService() {
             // networks blackhole UDP or DNS. Only claim "connected" once real
             // traffic flows through the tunnel; otherwise tear down loudly.
             if (verifyTraffic()) {
+                trafficStalled = false
                 writeState(true, serverId, null)
                 clearAlert()
                 startMonitor(activeBackend, activeTunnel)
@@ -330,8 +336,11 @@ class PiaVpnService : VpnService() {
 
     /**
      * Watchdog: heartbeat every 5s so the UI can tell a live tunnel from a
-     * stale "connected" flag, plus a full traffic re-proof every minute. Any
-     * failure tears the tunnel down loudly instead of lying.
+     * stale "connected" flag, plus a full traffic re-proof every minute.
+     * A failed re-proof NEVER tears the tunnel down: WireGuard roams and
+     * re-handshakes on its own (Doze, NAT expiry, brief stalls), and killing
+     * the tunnel under Always-on block mode means total blackout. The
+     * watchdog reports the stall once, then clears itself on recovery.
      */
     private fun startMonitor(activeBackend: GoBackend, activeTunnel: PiaTunnel) {
         stopMonitor()
@@ -350,13 +359,22 @@ class PiaVpnService : VpnService() {
                     if (now - lastVerify >= 60_000) {
                         lastVerify = now
                         if (!verifyTraffic()) {
-                            failTraffic(
-                                activeBackend,
-                                activeTunnel,
-                                watchedServer,
-                                "traffic stopped flowing through the live tunnel",
-                            )
-                            break
+                            if (!trafficStalled) {
+                                trafficStalled = true
+                                writeState(
+                                    true,
+                                    watchedServer,
+                                    "traffic stalled, WireGuard recovering",
+                                )
+                                postAlert(
+                                    "AIP VPN tunnel stalled",
+                                    "Traffic stalled, WireGuard recovering on its own",
+                                )
+                            }
+                        } else if (trafficStalled) {
+                            trafficStalled = false
+                            writeState(true, watchedServer, null)
+                            clearAlert()
                         }
                     }
                 } catch (ignored: Exception) {
@@ -421,6 +439,7 @@ class PiaVpnService : VpnService() {
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentIntent(openAppIntent())
             .build()
         try {
             manager.notify(ALERT_NOTIFICATION_ID, notification)

@@ -381,7 +381,12 @@ class MainActivity : Activity() {
             }
             current?.id == serverId -> {
                 if (!connecting) {
-                    connectStatus.text = "Connected to $connectedTitle"
+                    val wobble = readLastError()
+                    connectStatus.text = if (wobble.isNullOrEmpty()) {
+                        "Connected to $connectedTitle"
+                    } else {
+                        "Connected to $connectedTitle ($wobble)"
+                    }
                 }
                 connectButton.isEnabled = false
             }
