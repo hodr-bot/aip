@@ -423,6 +423,7 @@ class MainActivity : Activity() {
                     dnsServersCsv = result.dnsServers.joinToString(","),
                     allowLan = allowLan,
                     serverId = server.id,
+                    serverName = server.displayTitle(),
                     probeIpsCsv = probeIps,
                 )
             }

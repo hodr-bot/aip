@@ -42,6 +42,7 @@ class PiaVpnService : VpnService() {
         const val EXTRA_DNS_SERVERS = "dnsServersCsv"
         const val EXTRA_ALLOW_LAN = "allowLan"
         const val EXTRA_SERVER_ID = "serverId"
+        const val EXTRA_SERVER_NAME = "serverName"
         const val EXTRA_PROBE_IPS = "probeIps"
 
         private const val CHANNEL_ID = "aip-vpn"
@@ -76,8 +77,9 @@ class PiaVpnService : VpnService() {
             serverPort: Int,
             serverKey: String,
             dnsServersCsv: String,
-            allowLan: Boolean = false,
-            serverId: String? = null,
+            allowLan: Boolean,
+            serverId: String?,
+            serverName: String = "",
             probeIpsCsv: String = "",
         ) {
             val intent = Intent(context, PiaVpnService::class.java).apply {
@@ -88,6 +90,7 @@ class PiaVpnService : VpnService() {
                 putExtra(EXTRA_DNS_SERVERS, dnsServersCsv)
                 putExtra(EXTRA_ALLOW_LAN, allowLan)
                 putExtra(EXTRA_SERVER_ID, serverId)
+                putExtra(EXTRA_SERVER_NAME, serverName)
                 putExtra(EXTRA_PROBE_IPS, probeIpsCsv)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -106,6 +109,13 @@ class PiaVpnService : VpnService() {
 
     @Volatile
     private var activeServerId: String? = null
+
+    @Volatile
+    private var activeServerName: String = ""
+
+    /** Uptime anchor for the session duration shown in the status notice. */
+    @Volatile
+    private var connectedSinceMs: Long = 0L
 
     @Volatile
     private var monitor: Thread? = null
@@ -139,6 +149,7 @@ class PiaVpnService : VpnService() {
         val dnsServersCsv = intent?.getStringExtra(EXTRA_DNS_SERVERS).orEmpty()
         val allowLan = intent?.getBooleanExtra(EXTRA_ALLOW_LAN, false) ?: false
         val serverId = intent?.getStringExtra(EXTRA_SERVER_ID)
+        val serverName = intent?.getStringExtra(EXTRA_SERVER_NAME).orEmpty()
         val probeIps = intent?.getStringExtra(EXTRA_PROBE_IPS).orEmpty()
         if (peerIp.isNullOrEmpty() || endpoint.isNullOrEmpty() ||
             serverKey.isNullOrEmpty() || serverPort <= 0 || serverPort > 65535
@@ -151,7 +162,7 @@ class PiaVpnService : VpnService() {
         }
         goForeground()
         Thread {
-            bringUp(peerIp, endpoint, serverPort, serverKey, dnsServersCsv, allowLan, serverId, probeIps)
+            bringUp(peerIp, endpoint, serverPort, serverKey, dnsServersCsv, allowLan, serverId, serverName, probeIps)
         }.start()
         return START_NOT_STICKY
     }
@@ -185,15 +196,7 @@ class PiaVpnService : VpnService() {
                 ),
             )
         }
-        val openApp = openAppIntent()
-        val notification: Notification = Notification.Builder(this, SILENT_CHANNEL_ID)
-            .setContentTitle("AIP VPN")
-            .setContentText("VPN active")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentIntent(openApp)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .build()
+        val notification = buildStatusNotification(0L, 0L)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -203,6 +206,66 @@ class PiaVpnService : VpnService() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+    }
+
+    /**
+     * The mandatory ongoing notice, made useful: current server plus live
+     * up/down counters, pretty-printed. Collapsed shows one line, expanded
+     * (BigTextStyle) shows server, traffic and session duration.
+     */
+    private fun buildStatusNotification(txBytes: Long, rxBytes: Long): Notification {
+        val server = activeServerName.ifEmpty { activeServerId ?: "…" }
+        val counters = "▲ ${fmtBytes(txBytes)} · ▼ ${fmtBytes(rxBytes)}"
+        val title = "AIP VPN · $server"
+        val detail = if (trafficStalled) {
+            "$counters · reconnexion…"
+        } else if (connectedSinceMs > 0L) {
+            "$counters · ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}"
+        } else {
+            "$counters · connexion…"
+        }
+        return Notification.Builder(this, SILENT_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(detail)
+            .setStyle(
+                Notification.BigTextStyle()
+                    .bigText("Serveur : $server\nTrafic : $counters\nSession : ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}"),
+            )
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentIntent(openAppIntent())
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
+    }
+
+    /** Refresh the ongoing notice with live counters; silent by design. */
+    private fun refreshStatus() {
+        val activeBackend = backend
+        val activeTunnel = tunnel
+        if (activeBackend == null || activeTunnel == null) return
+        try {
+            val stats = activeBackend.getStatistics(activeTunnel)
+            val notification = buildStatusNotification(stats.totalTx(), stats.totalRx())
+            getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification)
+        } catch (ignored: Exception) {
+        }
+    }
+
+    private fun fmtBytes(bytes: Long): String {
+        if (bytes < 1024) return "$bytes o"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format(java.util.Locale.FRENCH, "%.1f Ko", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format(java.util.Locale.FRENCH, "%.1f Mo", mb)
+        return String.format(java.util.Locale.FRENCH, "%.2f Go", mb / 1024.0)
+    }
+
+    private fun fmtDuration(ms: Long): String {
+        if (ms < 0) return "0 min"
+        val min = ms / 60_000
+        if (min < 60) return "$min min"
+        val h = min / 60
+        return "$h h ${min % 60} min"
     }
 
     /** Drop the mandatory foreground notice the moment no tunnel runs. */
@@ -260,9 +323,11 @@ class PiaVpnService : VpnService() {
         dnsServersCsv: String,
         allowLan: Boolean,
         serverId: String?,
+        serverName: String = "",
         probeIps: String = "",
     ) {
         activeServerId = serverId
+        activeServerName = serverName
         probeIpsCsv = probeIps
         val activeTunnel = PiaTunnel(TUNNEL_NAME)
         val activeBackend = GoBackend(this)
@@ -315,8 +380,10 @@ class PiaVpnService : VpnService() {
             val (flows, trace) = verifyTraffic()
             if (flows) {
                 trafficStalled = false
+                connectedSinceMs = System.currentTimeMillis()
                 writeState(true, serverId, null)
                 clearAlert()
+                refreshStatus()
                 startMonitor(activeBackend, activeTunnel)
             } else {
                 // Handshake counters BEFORE teardown: tx=0 nothing left the
@@ -477,6 +544,7 @@ class PiaVpnService : VpnService() {
         val watchedServer = activeServerId
         val thread = Thread {
             var lastVerify = System.currentTimeMillis()
+            var lastStatus = 0L
             while (!Thread.currentThread().isInterrupted) {
                 try {
                     Thread.sleep(5_000)
@@ -486,6 +554,11 @@ class PiaVpnService : VpnService() {
                 try {
                     writeAlive()
                     val now = System.currentTimeMillis()
+                    // Live counters in the ongoing notice, refreshed silently.
+                    if (now - lastStatus >= 10_000) {
+                        lastStatus = now
+                        refreshStatus()
+                    }
                     if (now - lastVerify >= 60_000) {
                         lastVerify = now
                         if (!verifyTraffic().first) {
@@ -599,6 +672,8 @@ class PiaVpnService : VpnService() {
         val keepError = prefs.getString(STATE_LAST_ERROR, null)
         writeState(false, keepServer, keepError)
         activeServerId = null
+        activeServerName = ""
+        connectedSinceMs = 0L
         // User disconnect: zero residue. Drop the mandatory notice now and
         // clear any stale problem alert; success itself stays silent.
         stopForegroundNotice()
