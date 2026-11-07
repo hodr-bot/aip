@@ -26,6 +26,7 @@ class PiaClient(
         const val TOKEN_URL = "https://www.privateinternetaccess.com/api/client/v2/token"
         const val ADD_KEY_PORT = 1337
         const val ADD_KEY_PATH = "addKey"
+        const val HEX_DIGITS = "0123456789ABCDEF"
     }
 
     /** Exchange username/password for a fresh token stamped with [Clock]. */
@@ -75,7 +76,8 @@ class PiaClient(
 
     /** String-token overload so callers need not wrap the pt value. */
     fun addKey(hostname: String, token: String, publicKey: String): LeaseResult {
-        val url = "https://$hostname:$ADD_KEY_PORT/$ADD_KEY_PATH?pt=$token&pubkey=$publicKey"
+        val url = "https://$hostname:$ADD_KEY_PORT/$ADD_KEY_PATH" +
+            "?pt=${urlEncode(token)}&pubkey=${urlEncode(publicKey)}"
         val body = http.get(url)
         val status = findStringField(body, "status")
         if (status != "OK") {
@@ -181,5 +183,40 @@ class PiaClient(
             cursor++
         }
         return cursor
+    }
+
+    internal fun urlEncode(raw: String): String {
+        val out = StringBuilder()
+        var i = 0
+        while (i < raw.length) {
+            val ch = raw[i]
+            if (ch in 'a'..'z' || ch in 'A'..'Z' || ch in '0'..'9'
+                || ch == '-' || ch == '_' || ch == '.' || ch == '~'
+            ) {
+                out.append(ch)
+            } else {
+                val code = raw[i].code
+                if (code < 0x80) {
+                    out.append('%')
+                    out.append(HEX_DIGITS[(code shr 4) and 0xF])
+                    out.append(HEX_DIGITS[code and 0xF])
+                } else {
+                    var j = i
+                    while (j < raw.length && raw[j].code >= 0x80) {
+                        j++
+                    }
+                    val bytes = raw.substring(i, j).encodeToByteArray()
+                    for (b in bytes) {
+                        val v = b.toInt() and 0xFF
+                        out.append('%')
+                        out.append(HEX_DIGITS[(v shr 4) and 0xF])
+                        out.append(HEX_DIGITS[v and 0xF])
+                    }
+                    i = j - 1
+                }
+            }
+            i++
+        }
+        return out.toString()
     }
 }

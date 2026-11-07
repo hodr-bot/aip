@@ -168,4 +168,18 @@ class PiaClientTest {
             client.addKey("uk-london.privacy.network", AuthToken("dummy-token-value", 1_700_000L), "dummy-pubkey")
         }
     }
+
+    @Test
+    fun `addKey percent-encodes token and pubkey in query`() {
+        val fakeHttp = FakeHttpPort(
+            getReply = """{"status":"OK","peer_ip":"10.4.0.2","server_key":"k=","server_port":1337,"dns_servers":[]}""",
+        )
+        val client = PiaClient(fakeHttp, FakeClock(1_700_000L))
+
+        client.addKey("uk-london.privacy.network", "tok+en/with=", "pub+key/with=")
+
+        val url = fakeHttp.lastGetUrl ?: ""
+        assertTrue(url.contains("pt=tok%2Ben%2Fwith%3D"), url)
+        assertTrue(url.contains("pubkey=pub%2Bkey%2Fwith%3D"), url)
+    }
 }
