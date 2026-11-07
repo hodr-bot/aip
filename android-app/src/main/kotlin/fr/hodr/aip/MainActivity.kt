@@ -343,6 +343,7 @@ class MainActivity : Activity() {
         pendingServer = null
         // The service writes pia-vpn-state itself once real traffic is proven.
         // Never claim "connected" before that: a tunnel without traffic is a failure.
+        getSharedPreferences(PREFS_STATE, MODE_PRIVATE).edit().remove(KEY_LAST_ERROR).apply()
         connectStatus.text = "Connecting... verifying traffic"
         connectProgress.postDelayed({ setConnecting(false); updateConnectState() }, 30_000)
         updateConnectState()
@@ -363,7 +364,12 @@ class MainActivity : Activity() {
         when {
             !connected || serverId.isNullOrEmpty() -> {
                 if (!connecting) {
-                    connectStatus.text = "Disconnected"
+                    val lastError = readLastError()
+                    connectStatus.text = if (lastError.isNullOrEmpty()) {
+                        "Disconnected"
+                    } else {
+                        "Disconnected: $lastError"
+                    }
                 }
                 connectButton.isEnabled = current != null
             }
@@ -389,10 +395,14 @@ class MainActivity : Activity() {
         return prefs.getBoolean(KEY_CONNECTED, false) to prefs.getString(KEY_SERVER_ID, null)
     }
 
+    private fun readLastError(): String? =
+        getSharedPreferences(PREFS_STATE, MODE_PRIVATE).getString(KEY_LAST_ERROR, null)
+
     private fun writeVpnState(connected: Boolean, serverId: String?) {
         getSharedPreferences(PREFS_STATE, MODE_PRIVATE).edit()
             .putBoolean(KEY_CONNECTED, connected)
             .putString(KEY_SERVER_ID, serverId)
+            .remove(KEY_LAST_ERROR)
             .apply()
     }
 
@@ -461,6 +471,7 @@ class MainActivity : Activity() {
         private const val PREFS_STATE = "pia-vpn-state"
         private const val KEY_CONNECTED = "connected"
         private const val KEY_SERVER_ID = "serverId"
+        private const val KEY_LAST_ERROR = "lastError"
 
         private const val PREFS_UI = "pia-prefs"
         private const val KEY_ALLOW_LAN = "allowLan"

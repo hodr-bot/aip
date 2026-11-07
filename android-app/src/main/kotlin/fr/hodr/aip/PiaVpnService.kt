@@ -3,6 +3,7 @@ package fr.hodr.aip
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -51,6 +52,8 @@ class PiaVpnService : VpnService() {
         private const val STATE_PREFS = "pia-vpn-state"
         private const val STATE_CONNECTED = "connected"
         private const val STATE_SERVER_ID = "serverId"
+        private const val STATE_LAST_ERROR = "lastError"
+        const val FALLBACK_DNS = "10.0.0.243"
 
         fun startAction(
             context: Context,
@@ -137,10 +140,17 @@ class PiaVpnService : VpnService() {
                 ),
             )
         }
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            packageManager.getLaunchIntentForPackage(packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("AIP")
             .setContentText("VPN active")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentIntent(openApp)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -181,7 +191,7 @@ class PiaVpnService : VpnService() {
             )
         } catch (error: Exception) {
             // Offline at boot or stale account: alert, then stop; the system retries.
-            writeState(false, store.loadLastServerId())
+            writeState(false, store.loadLastServerId(), error.message ?: error.javaClass.simpleName)
             postAlert("AIP tunnel down", "Restore failed: ${error.message ?: error.javaClass.simpleName}")
             stopSelf()
         }
@@ -205,9 +215,8 @@ class PiaVpnService : VpnService() {
             val ifaceBuilder = Interface.Builder()
                 .setKeyPair(WgKeys.loadOrGenerate(this))
                 .parseAddresses("$peerIp/32")
-            if (dnsServersCsv.isNotBlank()) {
-                ifaceBuilder.parseDnsServers(dnsServersCsv)
-            }
+            val dnsCsv = dnsServersCsv.ifBlank { FALLBACK_DNS }
+            ifaceBuilder.parseDnsServers(dnsCsv)
             val peerBuilder = Peer.Builder()
                 .setPublicKey(Key.fromBase64(serverKey))
                 .setEndpoint(InetEndpoint.parse("$endpoint:$serverPort"))
@@ -223,7 +232,7 @@ class PiaVpnService : VpnService() {
             // networks blackhole UDP or DNS. Only claim "connected" once real
             // traffic flows through the tunnel; otherwise tear down loudly.
             if (verifyTraffic()) {
-                writeState(true, serverId)
+                writeState(true, serverId, null)
             } else {
                 try {
                     activeBackend.setState(activeTunnel, Tunnel.State.DOWN, null)
@@ -232,10 +241,11 @@ class PiaVpnService : VpnService() {
                 }
                 backend = null
                 tunnel = null
-                writeState(false, serverId)
+                val reason = "the tunnel came up yet nothing flows through it"
+                writeState(false, serverId, reason)
                 postAlert(
                     "AIP tunnel down",
-                    "Connected but no traffic: the tunnel came up yet nothing flows through it",
+                    "Connected but no traffic: $reason",
                 )
                 stopSelf()
             }
@@ -247,8 +257,9 @@ class PiaVpnService : VpnService() {
             }
             backend = null
             tunnel = null
-            writeState(false, serverId)
-            postAlert("AIP tunnel down", "Unexpected teardown: ${error.message ?: error.javaClass.simpleName}")
+            val reason = error.message ?: error.javaClass.simpleName
+            writeState(false, serverId, reason)
+            postAlert("AIP tunnel down", "Unexpected teardown: $reason")
             stopSelf()
         }
     }
@@ -256,7 +267,8 @@ class PiaVpnService : VpnService() {
     /**
      * Prove real traffic flows through the tunnel: a small HEAD request to
      * the PIA site (DNS + TCP + TLS through the TUN interface). Two tries,
-     * short timeouts. False means "tunnel up, internet dead".
+     * short timeouts. Any HTTP response at all (even an error status) proves
+     * traffic flows; only transport exceptions mean "tunnel up, internet dead".
      */
     private fun verifyTraffic(): Boolean {
         repeat(2) {
@@ -268,9 +280,8 @@ class PiaVpnService : VpnService() {
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 10_000
                 connection.instanceFollowRedirects = false
-                if (connection.responseCode in 200..399) {
-                    return true
-                }
+                connection.responseCode
+                return true
             } catch (ignored: Exception) {
                 // Try once more, then report no traffic.
             } finally {
@@ -280,10 +291,11 @@ class PiaVpnService : VpnService() {
         return false
     }
 
-    private fun writeState(connected: Boolean, serverId: String?) {
+    private fun writeState(connected: Boolean, serverId: String?, lastError: String?) {
         getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
             .putBoolean(STATE_CONNECTED, connected)
             .putString(STATE_SERVER_ID, serverId)
+            .putString(STATE_LAST_ERROR, lastError)
             .apply()
     }
 
@@ -321,7 +333,12 @@ class PiaVpnService : VpnService() {
         val activeTunnel = tunnel
         backend = null
         tunnel = null
-        writeState(false, activeServerId)
+        // Preserve the stored failure reason: bringDown also runs on the way
+        // out after a failure (stopSelf -> onDestroy), and must not wipe it.
+        val prefs = getSharedPreferences(STATE_PREFS, MODE_PRIVATE)
+        val keepServer = activeServerId ?: prefs.getString(STATE_SERVER_ID, null)
+        val keepError = prefs.getString(STATE_LAST_ERROR, null)
+        writeState(false, keepServer, keepError)
         activeServerId = null
         if (activeBackend != null && activeTunnel != null) {
             Thread {
