@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <title>PIA Core — Server Choice</title>
+  <style>
+    body { font-family: sans-serif; margin: 12px; min-width: 280px; color: #222; }
+    h1 { font-size: 14px; margin: 0 0 8px; }
+    #statusMessage { font-size: 12px; margin: 0 0 8px; min-height: 1.2em; }
+    #serverList { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+    #serverList li { margin: 0; padding: 0; }
+    #serverList button { display: flex; justify-content: space-between; width: 100%; margin: 2px 0; padding: 6px 8px; font-size: 12px; text-align: left; cursor: pointer; }
+    #serverList button[aria-pressed="true"] { font-weight: bold; }
+    #refreshButton { margin-top: 8px; font-size: 12px; }
+    .latency { margin-left: 8px; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <h1>PIA Core — Server Choice</h1>
+  <p id="statusMessage" role="status">Loading servers…</p>
+  <ul id="serverList"></ul>
+  <button id="refreshButton" type="button">Refresh list</button>
+  <script src="popup.js"></script>
+</body>
+</html>

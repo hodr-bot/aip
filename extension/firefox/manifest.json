@@ -10,6 +10,10 @@
       "background.js"
     ]
   },
+  "browser_action": {
+    "default_title": "PIA Core — Server Choice",
+    "default_popup": "popup.html"
+  },
   "permissions": [
     "alarms",
     "storage",
@@ -17,12 +21,13 @@
     "webRequest",
     "webRequestBlocking",
     "<all_urls>",
-    "https://www.privateinternetaccess.com/*"
+    "https://www.privateinternetaccess.com/*",
+    "https://serverlist.piaservers.net/*"
   ],
   "browser_specific_settings": {
     "gecko": {
       "id": "pia-core@local",
-      "strict_min_version": "91.0"
+      "strict_min_version": "91.1.0"
     }
   }
 }

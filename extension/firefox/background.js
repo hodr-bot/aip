@@ -53,6 +53,8 @@ var TOKEN_TTL_SEC = 24 * 60 * 60; // 24h, mirrors AuthToken.TOKEN_TTL_SEC
 var REFRESH_AFTER_SEC = 12 * 60 * 60; // 12h, mirrors AuthToken.REFRESH_AFTER_SEC
 // Public API endpoint (mirrors PiaClient.Companion.TOKEN_URL); not a secret.
 var TOKEN_URL = 'https://www.privateinternetaccess.com/api/client/v2/token';
+// Public server-list endpoint (mirrors ServerCatalog.SERVER_LIST_URL); not a secret.
+var SERVER_LIST_URL = 'https://serverlist.piaservers.net/vpninfo/servers/v6';
 
 var STORAGE_KEYS = {
   username: 'piaUsername',
@@ -61,7 +63,8 @@ var STORAGE_KEYS = {
   tokenIssuedAt: 'piaTokenIssuedAtSec',
   proxyHost: 'piaProxyHost',
   proxyPort: 'piaProxyPort',
-  killSwitchEnabled: 'piaKillSwitchEnabled'
+  killSwitchEnabled: 'piaKillSwitchEnabled',
+  serverId: 'piaServerId'
 };
 
 // Non-secret packaging defaults; the user may override them via storage.
@@ -221,6 +224,287 @@ function readExtensionSettings() {
       killSwitchEnabled: (STORAGE_KEYS.killSwitchEnabled in stored) ?
         stored[STORAGE_KEYS.killSwitchEnabled] !== false : true
     };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Server choice (extension only, mirrors ServerCatalog behaviour)      */
+/* ------------------------------------------------------------------ */
+
+// In-memory cache for the server list; avoids refetching on every connect.
+var cachedServerEntries = null;
+var cachedServerEntriesAtMs = 0;
+var SERVER_LIST_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
+var LATENCY_PROBE_TIMEOUT_MS = 4000;
+
+function skipWhitespaceAt(body, from) {
+  var cursor = from;
+  while (cursor < body.length && /\s/.test(body[cursor])) {
+    cursor += 1;
+  }
+  return cursor;
+}
+
+function findBoolFieldValue(body, field) {
+  var key = '"' + field + '"';
+  var index = body.indexOf(key);
+  while (index >= 0) {
+    var cursor = skipWhitespaceAt(body, index + key.length);
+    if (cursor < body.length && body[cursor] === ':') {
+      cursor = skipWhitespaceAt(body, cursor + 1);
+      var rest = body.substring(cursor);
+      if (rest.indexOf('true') === 0) {
+        return true;
+      }
+      if (rest.indexOf('false') === 0) {
+        return false;
+      }
+      return null;
+    }
+    index = body.indexOf(key, index + 1);
+  }
+  return null;
+}
+
+// Slice the balanced object starting at [start], strings respected.
+function extractBalancedObjectAt(body, start) {
+  var index = start;
+  var depth = 0;
+  var inString = false;
+  var escaped = false;
+  while (index < body.length) {
+    var ch = body[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth += 1;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return { text: body.substring(start, index + 1), next: index + 1 };
+      }
+    }
+    index += 1;
+  }
+  return null;
+}
+
+// Mirror ServerCatalog.parseRegions: offline regions skipped, id/dns kept.
+function parseServerRegions(body) {
+  var entries = [];
+  var regionsIndex = body.indexOf('"regions"');
+  if (regionsIndex < 0) {
+    return entries;
+  }
+  var cursor = skipWhitespaceAt(body, regionsIndex + '"regions"'.length);
+  if (cursor >= body.length || body[cursor] !== ':') {
+    return entries;
+  }
+  cursor = skipWhitespaceAt(body, cursor + 1);
+  if (cursor >= body.length || body[cursor] !== '[') {
+    return entries;
+  }
+  cursor += 1;
+  var guard = 0;
+  while (guard < 10000) {
+    guard += 1;
+    cursor = skipWhitespaceAt(body, cursor);
+    if (cursor >= body.length || body[cursor] === ']') {
+      break;
+    }
+    if (body[cursor] === ',') {
+      cursor += 1;
+      continue;
+    }
+    if (body[cursor] !== '{') {
+      break;
+    }
+    var region = extractBalancedObjectAt(body, cursor);
+    if (!region) {
+      break;
+    }
+    cursor = region.next;
+    var offline = findBoolFieldValue(region.text, 'offline');
+    if (!offline) {
+      var id = findStringField(region.text, 'id');
+      var dns = findStringField(region.text, 'dns');
+      if (id && dns) {
+        entries.push({ id: id, hostname: dns, latencyMs: null });
+      }
+    }
+  }
+  return entries;
+}
+
+function compareServersByLatency(a, b) {
+  var aKnown = (typeof a.latencyMs === 'number');
+  var bKnown = (typeof b.latencyMs === 'number');
+  if (aKnown && !bKnown) {
+    return -1;
+  }
+  if (!aKnown && bKnown) {
+    return 1;
+  }
+  if (aKnown && bKnown && a.latencyMs !== b.latencyMs) {
+    return a.latencyMs - b.latencyMs;
+  }
+  if (a.id < b.id) {
+    return -1;
+  }
+  if (a.id > b.id) {
+    return 1;
+  }
+  return 0;
+}
+
+// Mirror ServerCatalog.pickBest: lowest known latency wins, unknown sorts
+// last, ties break on id. Null when the list is empty.
+function pickBestServer(servers) {
+  if (!servers || !servers.length) {
+    return null;
+  }
+  var ordered = servers.slice().sort(compareServersByLatency);
+  return ordered[0];
+}
+
+function measureServerLatency(hostname, timeoutMs) {
+  var timeout = timeoutMs || LATENCY_PROBE_TIMEOUT_MS;
+  var started = Date.now();
+  var url = 'https://' + hostname + '/';
+  var finishOk = function () { return Date.now() - started; };
+  try {
+    if (typeof AbortController !== 'undefined') {
+      var controller = new AbortController();
+      var timer = setTimeout(function () {
+        try { controller.abort(); } catch (abortError) { /* ignore */ }
+      }, timeout);
+      return fetch(url, {
+        mode: 'no-cors',
+        cache: 'no-store',
+        redirect: 'manual',
+        signal: controller.signal
+      }).then(function () {
+        clearTimeout(timer);
+        return finishOk();
+      }, function () {
+        clearTimeout(timer);
+        return null;
+      });
+    }
+  } catch (probeError) {
+    return Promise.resolve(null);
+  }
+  var fetchAttempt = null;
+  try {
+    fetchAttempt = fetch(url, { mode: 'no-cors', cache: 'no-store', redirect: 'manual' });
+  } catch (fetchError) {
+    return Promise.resolve(null);
+  }
+  var timeoutPromise = new Promise(function (resolve) {
+    setTimeout(function () { resolve(null); }, timeout);
+  });
+  return Promise.race([
+    fetchAttempt.then(function () { return finishOk(); }, function () { return null; }),
+    timeoutPromise
+  ]);
+}
+
+function annotateServersWithLatency(servers) {
+  return Promise.all(servers.map(function (entry) {
+    return measureServerLatency(entry.hostname).then(function (latency) {
+      return { id: entry.id, hostname: entry.hostname, latencyMs: latency };
+    });
+  })).then(function (probed) {
+    return probed.sort(compareServersByLatency);
+  });
+}
+
+function fetchServerEntriesRaw() {
+  var nowMs = Date.now();
+  if (cachedServerEntries && (nowMs - cachedServerEntriesAtMs) < SERVER_LIST_CACHE_TTL_MS) {
+    return Promise.resolve(cachedServerEntries.slice());
+  }
+  return fetch(SERVER_LIST_URL).then(function (response) {
+    if (!response.ok) {
+      throw new Error('server list request failed with status ' + response.status);
+    }
+    return response.text();
+  }).then(function (body) {
+    // First line is the JSON document; trailing lines are the backdrop
+    // signature (verified by the platforms, ignored here).
+    var firstLine = body.split('\n')[0];
+    var entries = parseServerRegions(firstLine);
+    if (!entries.length) {
+      throw new Error('server list held no regions');
+    }
+    cachedServerEntries = entries;
+    cachedServerEntriesAtMs = Date.now();
+    return entries.slice();
+  });
+}
+
+function fetchServersForPopup() {
+  return fetchServerEntriesRaw().then(function (entries) {
+    return annotateServersWithLatency(entries);
+  });
+}
+
+function loadSelectedServerId() {
+  return browser.storage.local.get([STORAGE_KEYS.serverId]).then(function (stored) {
+    var value = stored[STORAGE_KEYS.serverId] || null;
+    return (typeof value === 'string' && value) ? value : null;
+  });
+}
+
+function saveSelectedServerId(serverId) {
+  var update = {};
+  update[STORAGE_KEYS.serverId] = serverId;
+  return browser.storage.local.set(update).then(function () {
+    return serverId;
+  });
+}
+
+// Honour the stored server choice: map the chosen id to its hostname for
+// the next connect. When nothing is stored yet, default to the best pick
+// and persist it. Failures fall back to the configured host.
+function resolveActiveProxyHost(fallbackHost) {
+  return loadSelectedServerId().then(function (storedId) {
+    return fetchServerEntriesRaw().then(function (servers) {
+      if (!servers || !servers.length) {
+        return { proxyHost: fallbackHost, serverId: storedId };
+      }
+      if (storedId) {
+        var match = null;
+        for (var i = 0; i < servers.length; i += 1) {
+          if (servers[i].id === storedId) {
+            match = servers[i];
+            break;
+          }
+        }
+        if (match) {
+          return { proxyHost: match.hostname, serverId: storedId };
+        }
+        return { proxyHost: fallbackHost, serverId: storedId };
+      }
+      var best = pickBestServer(servers);
+      if (best) {
+        saveSelectedServerId(best.id);
+        return { proxyHost: best.hostname, serverId: best.id };
+      }
+      return { proxyHost: fallbackHost, serverId: null };
+    }, function () {
+      return { proxyHost: fallbackHost, serverId: storedId };
+    });
+  }, function () {
+    return { proxyHost: fallbackHost, serverId: null };
   });
 }
 
@@ -397,6 +681,11 @@ function refreshTokenAndApplyProxy() {
   return readExtensionSettings()
     .then(function (settings) {
       settingsHolder = settings;
+      return resolveActiveProxyHost(settings.proxyHost);
+    })
+    .then(function (active) {
+      settingsHolder.proxyHost = active.proxyHost;
+      settingsHolder.serverId = active.serverId;
       return Promise.all([readCredentialsOnce(), loadStoredToken()]);
     })
     .then(function (results) {
@@ -434,6 +723,57 @@ function refreshTokenAndApplyProxy() {
 function scheduleRefreshAlarm() {
   return browser.alarms.create(PIA_ALARM_NAME, {
     periodInMinutes: REFRESH_PERIOD_MINUTES
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Popup bridge: server list served through the background script      */
+/* ------------------------------------------------------------------ */
+
+function handlePopupMessage(message) {
+  if (!message || typeof message.type !== 'string') {
+    return Promise.reject(new Error('unrecognised message'));
+  }
+  if (message.type === 'pia-get-servers') {
+    return fetchServersForPopup().then(function (servers) {
+      return loadSelectedServerId().then(function (selectedId) {
+        return { servers: servers, selectedServerId: selectedId };
+      });
+    });
+  }
+  if (message.type === 'pia-get-selected-server') {
+    return loadSelectedServerId().then(function (selectedId) {
+      return { selectedServerId: selectedId };
+    });
+  }
+  if (message.type === 'pia-set-selected-server') {
+    var serverId = message.serverId;
+    if (typeof serverId !== 'string' || !serverId) {
+      return Promise.reject(new Error('missing server id'));
+    }
+    return fetchServerEntriesRaw().then(function (servers) {
+      var known = false;
+      for (var i = 0; i < servers.length; i += 1) {
+        if (servers[i].id === serverId) {
+          known = true;
+          break;
+        }
+      }
+      if (!known) {
+        throw new Error('unknown server id');
+      }
+      return saveSelectedServerId(serverId);
+    }).then(function (saved) {
+      refreshTokenAndApplyProxy();
+      return { selectedServerId: saved };
+    });
+  }
+  return Promise.reject(new Error('unrecognised message'));
+}
+
+if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessage) {
+  browser.runtime.onMessage.addListener(function (message) {
+    return handlePopupMessage(message);
   });
 }
 
