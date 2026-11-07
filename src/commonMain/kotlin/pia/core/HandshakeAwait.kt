@@ -35,10 +35,12 @@ fun awaitHandshake(
         if (nowMs() >= deadline) {
             return AwaitResult(completed = false, txBytes = tx, rxBytes = rx)
         }
+        // Portable: on JVM this also catches InterruptedException (the
+        // Android sleep ignores interrupts anyway); on JS any throw aborts
+        // the wait as incomplete instead of killing the caller.
         try {
             sleepMs(stepMs)
-        } catch (interrupted: InterruptedException) {
-            Thread.currentThread().interrupt()
+        } catch (error: Exception) {
             return AwaitResult(completed = false, txBytes = tx, rxBytes = rx)
         }
     }

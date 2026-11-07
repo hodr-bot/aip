@@ -13,62 +13,65 @@
   'use strict';
   //region block: imports
   var imul = Math.imul;
-  var numberToLong = kotlin_kotlin.$_$.g1;
-  var protoOf = kotlin_kotlin.$_$.h1;
-  var initMetadataForObject = kotlin_kotlin.$_$.d1;
-  var Long = kotlin_kotlin.$_$.x1;
+  var Long = kotlin_kotlin.$_$.z1;
+  var VOID = kotlin_kotlin.$_$.a;
+  var Exception = kotlin_kotlin.$_$.y1;
+  var protoOf = kotlin_kotlin.$_$.i1;
+  var getBooleanHashCode = kotlin_kotlin.$_$.y;
+  var THROW_CCE = kotlin_kotlin.$_$.a2;
+  var initMetadataForClass = kotlin_kotlin.$_$.b1;
+  var numberToLong = kotlin_kotlin.$_$.h1;
+  var initMetadataForObject = kotlin_kotlin.$_$.e1;
   var defineProp = kotlin_kotlin.$_$.w;
-  var THROW_IAE = kotlin_kotlin.$_$.z1;
+  var THROW_IAE = kotlin_kotlin.$_$.b2;
   var enumEntries = kotlin_kotlin.$_$.q;
   var Unit_getInstance = kotlin_kotlin.$_$.h;
-  var Enum = kotlin_kotlin.$_$.v1;
-  var initMetadataForClass = kotlin_kotlin.$_$.a1;
-  var VOID = kotlin_kotlin.$_$.a;
-  var Exception = kotlin_kotlin.$_$.w1;
+  var Enum = kotlin_kotlin.$_$.x1;
   var Exception_init_$Init$ = kotlin_kotlin.$_$.e;
   var captureStack = kotlin_kotlin.$_$.s;
-  var toString = kotlin_kotlin.$_$.i1;
-  var hashCode = kotlin_kotlin.$_$.z;
-  var THROW_CCE = kotlin_kotlin.$_$.y1;
+  var toString = kotlin_kotlin.$_$.j1;
+  var hashCode = kotlin_kotlin.$_$.a1;
   var equals = kotlin_kotlin.$_$.x;
-  var initMetadataForCompanion = kotlin_kotlin.$_$.b1;
-  var indexOf = kotlin_kotlin.$_$.k1;
+  var initMetadataForCompanion = kotlin_kotlin.$_$.c1;
+  var indexOf = kotlin_kotlin.$_$.m1;
   var _Char___init__impl__6a9atx = kotlin_kotlin.$_$.f;
-  var indexOf_0 = kotlin_kotlin.$_$.l1;
+  var indexOf_0 = kotlin_kotlin.$_$.n1;
   var charSequenceGet = kotlin_kotlin.$_$.u;
-  var toIntOrNull = kotlin_kotlin.$_$.q1;
-  var isDigit = kotlin_kotlin.$_$.m1;
+  var toIntOrNull = kotlin_kotlin.$_$.s1;
+  var isDigit = kotlin_kotlin.$_$.o1;
   var emptyList = kotlin_kotlin.$_$.j;
-  var isCharSequence = kotlin_kotlin.$_$.e1;
-  var trim = kotlin_kotlin.$_$.t1;
+  var isCharSequence = kotlin_kotlin.$_$.f1;
+  var trim = kotlin_kotlin.$_$.v1;
   var charSequenceLength = kotlin_kotlin.$_$.v;
   var charArrayOf = kotlin_kotlin.$_$.t;
-  var split = kotlin_kotlin.$_$.o1;
+  var split = kotlin_kotlin.$_$.q1;
   var ArrayList_init_$Create$ = kotlin_kotlin.$_$.c;
-  var trim_0 = kotlin_kotlin.$_$.s1;
-  var isWhitespace = kotlin_kotlin.$_$.n1;
-  var to = kotlin_kotlin.$_$.b2;
+  var trim_0 = kotlin_kotlin.$_$.u1;
+  var isWhitespace = kotlin_kotlin.$_$.p1;
+  var to = kotlin_kotlin.$_$.d2;
   var mapOf = kotlin_kotlin.$_$.n;
   var StringBuilder_init_$Create$ = kotlin_kotlin.$_$.d;
   var Char__toInt_impl_vasixd = kotlin_kotlin.$_$.g;
-  var encodeToByteArray = kotlin_kotlin.$_$.j1;
+  var encodeToByteArray = kotlin_kotlin.$_$.k1;
   var emptyMap = kotlin_kotlin.$_$.k;
-  var initMetadataForInterface = kotlin_kotlin.$_$.c1;
-  var toString_0 = kotlin_kotlin.$_$.a2;
-  var getStringHashCode = kotlin_kotlin.$_$.y;
+  var initMetadataForInterface = kotlin_kotlin.$_$.d1;
+  var toString_0 = kotlin_kotlin.$_$.c2;
+  var getStringHashCode = kotlin_kotlin.$_$.z;
   var FunctionAdapter = kotlin_kotlin.$_$.r;
-  var isInterface = kotlin_kotlin.$_$.f1;
-  var Comparator = kotlin_kotlin.$_$.u1;
+  var isInterface = kotlin_kotlin.$_$.g1;
+  var Comparator = kotlin_kotlin.$_$.w1;
   var compareValues = kotlin_kotlin.$_$.p;
   var minWithOrNull = kotlin_kotlin.$_$.o;
-  var startsWith = kotlin_kotlin.$_$.p1;
+  var endsWith = kotlin_kotlin.$_$.l1;
+  var startsWith = kotlin_kotlin.$_$.r1;
   var collectionSizeOrDefault = kotlin_kotlin.$_$.i;
   var ArrayList_init_$Create$_0 = kotlin_kotlin.$_$.b;
   var listOf = kotlin_kotlin.$_$.m;
   var joinToString = kotlin_kotlin.$_$.l;
-  var trimMargin = kotlin_kotlin.$_$.r1;
+  var trimMargin = kotlin_kotlin.$_$.t1;
   //endregion
   //region block: pre-declaration
+  initMetadataForClass(AwaitResult, 'AwaitResult');
   initMetadataForObject(JsTimeBridge, 'JsTimeBridge');
   initMetadataForObject(JsConstants, 'JsConstants');
   initMetadataForClass(ConnectionState, 'ConnectionState', VOID, Enum);
@@ -97,6 +100,100 @@
   initMetadataForClass(WireGuardLease, 'WireGuardLease');
   initMetadataForObject(WireGuard, 'WireGuard');
   //endregion
+  function awaitHandshake(stats, nowMs, sleepMs, timeoutMs, stepMs) {
+    timeoutMs = timeoutMs === VOID ? new Long(10000, 0) : timeoutMs;
+    stepMs = stepMs === VOID ? new Long(500, 0) : stepMs;
+    var deadline = nowMs().plus_r93sks_k$(timeoutMs);
+    var tx = new Long(0, 0);
+    var rx = new Long(0, 0);
+    while (true) {
+      try {
+        var _destruct__k2r9zo = stats();
+        var t = _destruct__k2r9zo.component1_7eebsc_k$();
+        var r = _destruct__k2r9zo.component2_7eebsb_k$();
+        tx = t;
+        rx = r;
+      } catch ($p) {
+        if ($p instanceof Exception) {
+          var error = $p;
+          return new AwaitResult(false, tx, rx);
+        } else {
+          throw $p;
+        }
+      }
+      if (rx.compareTo_9jj042_k$(new Long(0, 0)) > 0) {
+        return new AwaitResult(true, tx, rx);
+      }
+      if (nowMs().compareTo_9jj042_k$(deadline) >= 0) {
+        return new AwaitResult(false, tx, rx);
+      }
+      try {
+        sleepMs(stepMs);
+      } catch ($p) {
+        if ($p instanceof Exception) {
+          var error_0 = $p;
+          return new AwaitResult(false, tx, rx);
+        } else {
+          throw $p;
+        }
+      }
+    }
+  }
+  function AwaitResult(completed, txBytes, rxBytes) {
+    this.completed_1 = completed;
+    this.txBytes_1 = txBytes;
+    this.rxBytes_1 = rxBytes;
+  }
+  protoOf(AwaitResult).get_completed_eoqvry_k$ = function () {
+    return this.completed_1;
+  };
+  protoOf(AwaitResult).get_txBytes_e0bp2a_k$ = function () {
+    return this.txBytes_1;
+  };
+  protoOf(AwaitResult).get_rxBytes_rnzsgs_k$ = function () {
+    return this.rxBytes_1;
+  };
+  protoOf(AwaitResult).component1_7eebsc_k$ = function () {
+    return this.completed_1;
+  };
+  protoOf(AwaitResult).component2_7eebsb_k$ = function () {
+    return this.txBytes_1;
+  };
+  protoOf(AwaitResult).component3_7eebsa_k$ = function () {
+    return this.rxBytes_1;
+  };
+  protoOf(AwaitResult).copy_y6jnn4_k$ = function (completed, txBytes, rxBytes) {
+    return new AwaitResult(completed, txBytes, rxBytes);
+  };
+  protoOf(AwaitResult).copy$default_jjgk1t_k$ = function (completed, txBytes, rxBytes, $super) {
+    completed = completed === VOID ? this.completed_1 : completed;
+    txBytes = txBytes === VOID ? this.txBytes_1 : txBytes;
+    rxBytes = rxBytes === VOID ? this.rxBytes_1 : rxBytes;
+    return $super === VOID ? this.copy_y6jnn4_k$(completed, txBytes, rxBytes) : $super.copy_y6jnn4_k$.call(this, completed, txBytes, rxBytes);
+  };
+  protoOf(AwaitResult).toString = function () {
+    return 'AwaitResult(completed=' + this.completed_1 + ', txBytes=' + this.txBytes_1.toString() + ', rxBytes=' + this.rxBytes_1.toString() + ')';
+  };
+  protoOf(AwaitResult).hashCode = function () {
+    var result = getBooleanHashCode(this.completed_1);
+    result = imul(result, 31) + this.txBytes_1.hashCode() | 0;
+    result = imul(result, 31) + this.rxBytes_1.hashCode() | 0;
+    return result;
+  };
+  protoOf(AwaitResult).equals = function (other) {
+    if (this === other)
+      return true;
+    if (!(other instanceof AwaitResult))
+      return false;
+    var tmp0_other_with_cast = other instanceof AwaitResult ? other : THROW_CCE();
+    if (!(this.completed_1 === tmp0_other_with_cast.completed_1))
+      return false;
+    if (!this.txBytes_1.equals(tmp0_other_with_cast.txBytes_1))
+      return false;
+    if (!this.rxBytes_1.equals(tmp0_other_with_cast.rxBytes_1))
+      return false;
+    return true;
+  };
   function JsTimeBridge() {
     JsTimeBridge_instance = this;
   }
@@ -533,8 +630,26 @@
     if (tmp) {
       throw new PiaApiError('addKey response missed peer_ip, server_key or server_port');
     }
+    var tmp0_safe_receiver = findStringField(this, body, 'server_ip');
+    var tmp_1;
+    if (tmp0_safe_receiver == null) {
+      tmp_1 = null;
+    } else {
+      // Inline function 'kotlin.takeIf' call
+      // Inline function 'kotlin.contracts.contract' call
+      var tmp_2;
+      // Inline function 'pia.core.PiaClient.addKey.<anonymous>' call
+      // Inline function 'kotlin.text.isNotEmpty' call
+      if (charSequenceLength(tmp0_safe_receiver) > 0) {
+        tmp_2 = tmp0_safe_receiver;
+      } else {
+        tmp_2 = null;
+      }
+      tmp_1 = tmp_2;
+    }
+    var serverIp = tmp_1;
     var dnsServers = findStringArray(this, body, 'dns_servers');
-    var lease = new WireGuardLease(peerIp, serverKey, hostname + ':' + serverPort);
+    var lease = new WireGuardLease(peerIp, serverKey, (serverIp == null ? hostname : serverIp) + ':' + serverPort);
     return new LeaseResult(lease, dnsServers);
   };
   protoOf(PiaClient).urlEncode_lg19uo_k$ = function (raw) {
@@ -740,11 +855,17 @@
       new RegionPicker();
     return RegionPicker_instance;
   }
-  function ServerEntry(id, hostname, latencyMs) {
+  function ServerEntry(id, hostname, latencyMs, displayName, virtual, streaming) {
     latencyMs = latencyMs === VOID ? null : latencyMs;
+    displayName = displayName === VOID ? '' : displayName;
+    virtual = virtual === VOID ? false : virtual;
+    streaming = streaming === VOID ? false : streaming;
     this.id_1 = id;
     this.hostname_1 = hostname;
     this.latencyMs_1 = latencyMs;
+    this.displayName_1 = displayName;
+    this.virtual_1 = virtual;
+    this.streaming_1 = streaming;
   }
   protoOf(ServerEntry).get_id_kntnx8_k$ = function () {
     return this.id_1;
@@ -755,6 +876,29 @@
   protoOf(ServerEntry).get_latencyMs_lf8qcl_k$ = function () {
     return this.latencyMs_1;
   };
+  protoOf(ServerEntry).get_displayName_sscnb0_k$ = function () {
+    return this.displayName_1;
+  };
+  protoOf(ServerEntry).get_virtual_8z3hnm_k$ = function () {
+    return this.virtual_1;
+  };
+  protoOf(ServerEntry).get_streaming_3am309_k$ = function () {
+    return this.streaming_1;
+  };
+  protoOf(ServerEntry).displayTitle_qjgddi_k$ = function () {
+    // Inline function 'kotlin.text.ifEmpty' call
+    var this_0 = this.displayName_1;
+    // Inline function 'kotlin.contracts.contract' call
+    var tmp;
+    // Inline function 'kotlin.text.isEmpty' call
+    if (charSequenceLength(this_0) === 0) {
+      // Inline function 'pia.core.ServerEntry.displayTitle.<anonymous>' call
+      tmp = this.id_1;
+    } else {
+      tmp = this_0;
+    }
+    return tmp;
+  };
   protoOf(ServerEntry).component1_7eebsc_k$ = function () {
     return this.id_1;
   };
@@ -764,22 +908,37 @@
   protoOf(ServerEntry).component3_7eebsa_k$ = function () {
     return this.latencyMs_1;
   };
-  protoOf(ServerEntry).copy_3s0fwa_k$ = function (id, hostname, latencyMs) {
-    return new ServerEntry(id, hostname, latencyMs);
+  protoOf(ServerEntry).component4_7eebs9_k$ = function () {
+    return this.displayName_1;
   };
-  protoOf(ServerEntry).copy$default_ozv33p_k$ = function (id, hostname, latencyMs, $super) {
+  protoOf(ServerEntry).component5_7eebs8_k$ = function () {
+    return this.virtual_1;
+  };
+  protoOf(ServerEntry).component6_7eebs7_k$ = function () {
+    return this.streaming_1;
+  };
+  protoOf(ServerEntry).copy_12kn1c_k$ = function (id, hostname, latencyMs, displayName, virtual, streaming) {
+    return new ServerEntry(id, hostname, latencyMs, displayName, virtual, streaming);
+  };
+  protoOf(ServerEntry).copy$default_45rm4u_k$ = function (id, hostname, latencyMs, displayName, virtual, streaming, $super) {
     id = id === VOID ? this.id_1 : id;
     hostname = hostname === VOID ? this.hostname_1 : hostname;
     latencyMs = latencyMs === VOID ? this.latencyMs_1 : latencyMs;
-    return $super === VOID ? this.copy_3s0fwa_k$(id, hostname, latencyMs) : $super.copy_3s0fwa_k$.call(this, id, hostname, latencyMs);
+    displayName = displayName === VOID ? this.displayName_1 : displayName;
+    virtual = virtual === VOID ? this.virtual_1 : virtual;
+    streaming = streaming === VOID ? this.streaming_1 : streaming;
+    return $super === VOID ? this.copy_12kn1c_k$(id, hostname, latencyMs, displayName, virtual, streaming) : $super.copy_12kn1c_k$.call(this, id, hostname, latencyMs, displayName, virtual, streaming);
   };
   protoOf(ServerEntry).toString = function () {
-    return 'ServerEntry(id=' + this.id_1 + ', hostname=' + this.hostname_1 + ', latencyMs=' + toString_0(this.latencyMs_1) + ')';
+    return 'ServerEntry(id=' + this.id_1 + ', hostname=' + this.hostname_1 + ', latencyMs=' + toString_0(this.latencyMs_1) + ', displayName=' + this.displayName_1 + ', virtual=' + this.virtual_1 + ', streaming=' + this.streaming_1 + ')';
   };
   protoOf(ServerEntry).hashCode = function () {
     var result = getStringHashCode(this.id_1);
     result = imul(result, 31) + getStringHashCode(this.hostname_1) | 0;
     result = imul(result, 31) + (this.latencyMs_1 == null ? 0 : this.latencyMs_1.hashCode()) | 0;
+    result = imul(result, 31) + getStringHashCode(this.displayName_1) | 0;
+    result = imul(result, 31) + getBooleanHashCode(this.virtual_1) | 0;
+    result = imul(result, 31) + getBooleanHashCode(this.streaming_1) | 0;
     return result;
   };
   protoOf(ServerEntry).equals = function (other) {
@@ -793,6 +952,12 @@
     if (!(this.hostname_1 === tmp0_other_with_cast.hostname_1))
       return false;
     if (!equals(this.latencyMs_1, tmp0_other_with_cast.latencyMs_1))
+      return false;
+    if (!(this.displayName_1 === tmp0_other_with_cast.displayName_1))
+      return false;
+    if (!(this.virtual_1 === tmp0_other_with_cast.virtual_1))
+      return false;
+    if (!(this.streaming_1 === tmp0_other_with_cast.streaming_1))
       return false;
     return true;
   };
@@ -865,7 +1030,11 @@
           tmp_0 = false;
         }
         if (tmp_0) {
-          entries.add_utx5q5_k$(new ServerEntry(id, dns));
+          // Inline function 'kotlin.text.orEmpty' call
+          var tmp0_elvis_lhs_0 = findStringField_0($this, region.get_first_irdx8n_k$(), 'name');
+          var name = tmp0_elvis_lhs_0 == null ? '' : tmp0_elvis_lhs_0;
+          var geo = findBoolField($this, region.get_first_irdx8n_k$(), 'geo');
+          entries.add_utx5q5_k$(new ServerEntry(id, dns, VOID, name, geo === false, endsWith(id, '-so')));
         }
       }
     }
@@ -1158,6 +1327,15 @@
   function WireGuard() {
     WireGuard_instance = this;
   }
+  protoOf(WireGuard).allowedIpCidrs = function (allowLan) {
+    var tmp;
+    if (!allowLan) {
+      tmp = listOf(['0.0.0.0/0', '::/0']);
+    } else {
+      tmp = listOf(['0.0.0.0/5', '8.0.0.0/7', '11.0.0.0/8', '12.0.0.0/6', '16.0.0.0/4', '32.0.0.0/3', '64.0.0.0/2', '128.0.0.0/3', '160.0.0.0/5', '168.0.0.0/6', '172.0.0.0/12', '172.32.0.0/11', '172.64.0.0/10', '172.128.0.0/9', '173.0.0.0/8', '174.0.0.0/7', '176.0.0.0/4', '192.0.0.0/9', '192.128.0.0/11', '192.160.0.0/13', '192.169.0.0/16', '192.170.0.0/15', '192.172.0.0/14', '192.176.0.0/12', '192.192.0.0/10', '193.0.0.0/8', '194.0.0.0/7', '196.0.0.0/6', '200.0.0.0/5', '208.0.0.0/4', '224.0.0.0/3', '::/0']);
+    }
+    return tmp;
+  };
   protoOf(WireGuard).allowedIps = function (excludeLan) {
     var tmp;
     if (!excludeLan) {
