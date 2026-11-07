@@ -17,6 +17,7 @@ import com.wireguard.config.Interface
 import com.wireguard.config.Peer
 import com.wireguard.crypto.Key
 import pia.core.PiaClient
+import pia.core.WireGuard
 
 /**
  * Foreground [VpnService] hosting the WireGuard tunnel through [GoBackend].
@@ -36,9 +37,12 @@ class PiaVpnService : VpnService() {
         const val EXTRA_SERVER_PORT = "serverPort"
         const val EXTRA_SERVER_KEY = "serverKey"
         const val EXTRA_DNS_SERVERS = "dnsServersCsv"
+        const val EXTRA_ALLOW_LAN = "allowLan"
 
         private const val CHANNEL_ID = "pia-vpn"
+        private const val ALERT_CHANNEL_ID = "aip-alerts"
         private const val NOTIFICATION_ID = 1
+        private const val ALERT_NOTIFICATION_ID = 2
         private const val TUNNEL_NAME = "pia"
 
         fun startAction(
@@ -48,6 +52,7 @@ class PiaVpnService : VpnService() {
             serverPort: Int,
             serverKey: String,
             dnsServersCsv: String,
+            allowLan: Boolean = false,
         ) {
             val intent = Intent(context, PiaVpnService::class.java).apply {
                 putExtra(EXTRA_PEER_IP, peerIp)
@@ -55,6 +60,7 @@ class PiaVpnService : VpnService() {
                 putExtra(EXTRA_SERVER_PORT, serverPort)
                 putExtra(EXTRA_SERVER_KEY, serverKey)
                 putExtra(EXTRA_DNS_SERVERS, dnsServersCsv)
+                putExtra(EXTRA_ALLOW_LAN, allowLan)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -81,18 +87,19 @@ class PiaVpnService : VpnService() {
         val serverPort = intent?.getIntExtra(EXTRA_SERVER_PORT, -1) ?: -1
         val serverKey = intent?.getStringExtra(EXTRA_SERVER_KEY)
         val dnsServersCsv = intent?.getStringExtra(EXTRA_DNS_SERVERS).orEmpty()
+        val allowLan = intent?.getBooleanExtra(EXTRA_ALLOW_LAN, false) ?: false
         if (peerIp.isNullOrEmpty() || endpoint.isNullOrEmpty() ||
             serverKey.isNullOrEmpty() || serverPort <= 0 || serverPort > 65535
         ) {
             // No lease in the intent (boot with Always-on, system restart):
             // rebuild it from the stored account and last server.
             goForeground()
-            Thread { restoreLease() }.start()
+            Thread { restoreLease(allowLan) }.start()
             return START_STICKY
         }
         goForeground()
         Thread {
-            bringUp(peerIp, endpoint, serverPort, serverKey, dnsServersCsv)
+            bringUp(peerIp, endpoint, serverPort, serverKey, dnsServersCsv, allowLan)
         }.start()
         return START_NOT_STICKY
     }
@@ -134,7 +141,7 @@ class PiaVpnService : VpnService() {
      * stored credentials plus last server hostname give a fresh token
      * and a fresh addKey lease. Stops the service when nothing stored.
      */
-    private fun restoreLease() {
+    private fun restoreLease(allowLan: Boolean) {
         val store = PrefsTokenStore(this)
         val hostname = store.loadLastHost()
         if (hostname.isNullOrEmpty() || store.loadUsername() == null) {
@@ -152,9 +159,11 @@ class PiaVpnService : VpnService() {
                 result.lease.endpoint.substringAfterLast(':').toInt(),
                 result.lease.serverPublicKey,
                 result.dnsServers.joinToString(","),
+                allowLan,
             )
         } catch (error: Exception) {
-            // Offline at boot or stale account: stop, the system retries.
+            // Offline at boot or stale account: alert, then stop; the system retries.
+            postAlert("PIA tunnel down", "Restore failed: ${error.message ?: error.javaClass.simpleName}")
             stopSelf()
         }
     }
@@ -165,6 +174,7 @@ class PiaVpnService : VpnService() {
         serverPort: Int,
         serverKey: String,
         dnsServersCsv: String,
+        allowLan: Boolean,
     ) {
         val activeTunnel = PiaTunnel(TUNNEL_NAME)
         val activeBackend = GoBackend(this)
@@ -177,16 +187,15 @@ class PiaVpnService : VpnService() {
             if (dnsServersCsv.isNotBlank()) {
                 ifaceBuilder.parseDnsServers(dnsServersCsv)
             }
+            val peerBuilder = Peer.Builder()
+                .setPublicKey(Key.fromBase64(serverKey))
+                .setEndpoint(InetEndpoint.parse("$endpoint:$serverPort"))
+            for (cidr in WireGuard.allowedIpCidrs(allowLan)) {
+                peerBuilder.addAllowedIp(InetNetwork.parse(cidr))
+            }
             val config = Config.Builder()
                 .setInterface(ifaceBuilder.build())
-                .addPeer(
-                    Peer.Builder()
-                        .setPublicKey(Key.fromBase64(serverKey))
-                        .setEndpoint(InetEndpoint.parse("$endpoint:$serverPort"))
-                        .addAllowedIp(InetNetwork.parse("0.0.0.0/0"))
-                        .addAllowedIp(InetNetwork.parse("::/0"))
-                        .build(),
-                )
+                .addPeer(peerBuilder.build())
                 .build()
             activeBackend.setState(activeTunnel, Tunnel.State.UP, config)
         } catch (error: Exception) {
@@ -197,7 +206,37 @@ class PiaVpnService : VpnService() {
             }
             backend = null
             tunnel = null
+            postAlert("PIA tunnel down", "Unexpected teardown: ${error.message ?: error.javaClass.simpleName}")
             stopSelf()
+        }
+    }
+
+    /**
+     * Failure alert on channel "aip-alerts" (created if missing,
+     * IMPORTANCE_HIGH). Used on restoreLease failure and unexpected
+     * teardown. Never includes secrets, only the error summary.
+     */
+    private fun postAlert(title: String, text: String) {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(ALERT_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    ALERT_CHANNEL_ID,
+                    "AIP alerts",
+                    NotificationManager.IMPORTANCE_HIGH,
+                ),
+            )
+        }
+        val notification: Notification = Notification.Builder(this, ALERT_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .build()
+        try {
+            manager.notify(ALERT_NOTIFICATION_ID, notification)
+        } catch (security: SecurityException) {
+            // POST_NOTIFICATIONS not granted (Android 13+): alert dropped,
+            // tunnel state handling above still applies.
         }
     }
 
