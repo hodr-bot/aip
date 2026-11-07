@@ -502,9 +502,15 @@ class PiaVpnService : VpnService() {
                 ),
             )
         }
+        val full = text
+        // Collapsed notifications ellipsize after ~2 lines, which is exactly
+        // what hid the rx= counters. Keep the collapsed line short, expandable
+        // to the full trace on tap/expand.
+        val short = if (full.length > 120) full.take(117) + "..." else full
         val notification: Notification = Notification.Builder(this, ALERT_CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(if (text.length > 140) text.take(137) + "..." else text)
+            .setContentText(short)
+            .setStyle(Notification.BigTextStyle().bigText(full))
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentIntent(openAppIntent())
             .build()

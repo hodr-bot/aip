@@ -6,6 +6,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
@@ -67,6 +68,8 @@ class MainActivity : Activity() {
 
     @Volatile
     private var pendingServer: ServerEntry? = null
+
+    private var stateListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -224,7 +227,36 @@ class MainActivity : Activity() {
         showLoginView(tokenStore.loadPassword() == null || authFailed)
         refreshServers()
         restoreSession()
+        // Live state: the service writes pia-vpn-state from a worker thread the
+        // moment it proves or fails traffic, while the old UI only refreshed on
+        // onResume or after a fixed 30s delay. That gap is exactly why the
+        // notification (posted instantly) arrived before the app caught up.
+        // Listen for every state write and refresh immediately.
+        val prefs = getSharedPreferences(PREFS_STATE, MODE_PRIVATE)
+        stateListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            runOnUiThread {
+                val (stored, _, aliveAt) = readVpnState()
+                val fresh = stored &&
+                    (System.currentTimeMillis() - aliveAt < PiaVpnService.ALIVE_FRESH_MS)
+                if (fresh || readLastError() != null) {
+                    setConnecting(false)
+                }
+                updateConnectState()
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(stateListener)
         updateConnectState()
+    }
+
+    override fun onDestroy() {
+        try {
+            stateListener?.let {
+                getSharedPreferences(PREFS_STATE, MODE_PRIVATE)
+                    .unregisterOnSharedPreferenceChangeListener(it)
+            }
+        } catch (ignored: Exception) {
+        }
+        super.onDestroy()
     }
 
     override fun onResume() {
@@ -358,7 +390,35 @@ class MainActivity : Activity() {
         // Never claim "connected" before that: a tunnel without traffic is a failure.
         getSharedPreferences(PREFS_STATE, MODE_PRIVATE).edit().remove(KEY_LAST_ERROR).apply()
         connectStatus.text = "Connecting... verifying traffic"
-        connectProgress.postDelayed({ setConnecting(false); updateConnectState() }, 30_000)
+        // Safety net behind the prefs listener above: poll every second so a
+        // missed write still surfaces within ~1s, never 30s. Stops early on a
+        // terminal state (connected fresh or lastError set) or after 30s.
+        Thread {
+            val deadline = System.currentTimeMillis() + 30_000
+            while (System.currentTimeMillis() < deadline && connecting) {
+                try {
+                    Thread.sleep(1_000)
+                } catch (interrupted: InterruptedException) {
+                    break
+                }
+                val (stored, _, aliveAt) = readVpnState()
+                val fresh = stored &&
+                    (System.currentTimeMillis() - aliveAt < PiaVpnService.ALIVE_FRESH_MS)
+                val failed = readLastError() != null
+                runOnUiThread { updateConnectState() }
+                if (fresh || failed) {
+                    runOnUiThread {
+                        setConnecting(false)
+                        updateConnectState()
+                    }
+                    break
+                }
+            }
+            runOnUiThread {
+                setConnecting(false)
+                updateConnectState()
+            }
+        }.apply { isDaemon = true }.start()
         updateConnectState()
     }
 
