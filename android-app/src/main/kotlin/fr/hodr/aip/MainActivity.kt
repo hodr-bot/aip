@@ -169,7 +169,21 @@ class MainActivity : Activity() {
             connectStatus.text = "Connecting..."
             Thread {
                 try {
-                    val token = client.ensureValidToken(tokenStore)
+                    val token = try {
+                        client.ensureValidToken(tokenStore)
+                    } catch (authError: Exception) {
+                        val message = authError.message ?: authError.javaClass.simpleName
+                        runOnUiThread {
+                            setConnecting(false)
+                            pendingLease = null
+                            pendingServer = null
+                            connectStatus.text = "Login failed: $message"
+                            tokenStore.clearCredentials()
+                            showLoginView(true)
+                        }
+                        notifyAlert("Login failed", message)
+                        return@Thread
+                    }
                     val remainingHours = token.remainingSec(clock.nowEpochSec()) / 3600
                     runOnUiThread {
                         loginStatus.text = "Token valid, remaining ~${remainingHours}h"
@@ -180,6 +194,7 @@ class MainActivity : Activity() {
                     pendingLease = result
                     pendingServer = entry
                     tokenStore.saveLastHost(entry.hostname)
+                    tokenStore.saveLastServerId(entry.id)
                     runOnUiThread {
                         val prepareIntent = VpnService.prepare(this@MainActivity)
                         if (prepareIntent != null) {
@@ -195,8 +210,6 @@ class MainActivity : Activity() {
                         pendingLease = null
                         pendingServer = null
                         connectStatus.text = "Connect failed: $message"
-                        tokenStore.clearCredentials()
-                        showLoginView(true)
                     }
                     notifyAlert("Connect failed", message)
                 }
@@ -324,11 +337,14 @@ class MainActivity : Activity() {
             serverKey = result.lease.serverPublicKey,
             dnsServersCsv = result.dnsServers.joinToString(","),
             allowLan = allowLanBox.isChecked,
+            serverId = server.id,
         )
         pendingLease = null
         pendingServer = null
-        setConnecting(false)
-        writeVpnState(true, server.id)
+        // The service writes pia-vpn-state itself once real traffic is proven.
+        // Never claim "connected" before that: a tunnel without traffic is a failure.
+        connectStatus.text = "Connecting... verifying traffic"
+        connectProgress.postDelayed({ setConnecting(false); updateConnectState() }, 30_000)
         updateConnectState()
     }
 
