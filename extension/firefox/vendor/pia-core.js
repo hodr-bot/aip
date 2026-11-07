@@ -13,57 +13,60 @@
   'use strict';
   //region block: imports
   var imul = Math.imul;
-  var numberToLong = kotlin_kotlin.$_$.e1;
-  var protoOf = kotlin_kotlin.$_$.f1;
-  var initMetadataForObject = kotlin_kotlin.$_$.b1;
-  var Long = kotlin_kotlin.$_$.u1;
-  var defineProp = kotlin_kotlin.$_$.u;
-  var THROW_IAE = kotlin_kotlin.$_$.w1;
-  var enumEntries = kotlin_kotlin.$_$.o;
-  var Unit_getInstance = kotlin_kotlin.$_$.f;
-  var Enum = kotlin_kotlin.$_$.s1;
-  var initMetadataForClass = kotlin_kotlin.$_$.y;
+  var numberToLong = kotlin_kotlin.$_$.g1;
+  var protoOf = kotlin_kotlin.$_$.h1;
+  var initMetadataForObject = kotlin_kotlin.$_$.d1;
+  var Long = kotlin_kotlin.$_$.x1;
+  var defineProp = kotlin_kotlin.$_$.w;
+  var THROW_IAE = kotlin_kotlin.$_$.z1;
+  var enumEntries = kotlin_kotlin.$_$.q;
+  var Unit_getInstance = kotlin_kotlin.$_$.h;
+  var Enum = kotlin_kotlin.$_$.v1;
+  var initMetadataForClass = kotlin_kotlin.$_$.a1;
   var VOID = kotlin_kotlin.$_$.a;
-  var Exception = kotlin_kotlin.$_$.t1;
-  var Exception_init_$Init$ = kotlin_kotlin.$_$.d;
-  var captureStack = kotlin_kotlin.$_$.q;
-  var toString = kotlin_kotlin.$_$.g1;
-  var hashCode = kotlin_kotlin.$_$.x;
-  var THROW_CCE = kotlin_kotlin.$_$.v1;
-  var equals = kotlin_kotlin.$_$.v;
-  var initMetadataForCompanion = kotlin_kotlin.$_$.z;
-  var indexOf = kotlin_kotlin.$_$.h1;
-  var _Char___init__impl__6a9atx = kotlin_kotlin.$_$.e;
-  var indexOf_0 = kotlin_kotlin.$_$.i1;
-  var charSequenceGet = kotlin_kotlin.$_$.s;
-  var toIntOrNull = kotlin_kotlin.$_$.n1;
-  var isDigit = kotlin_kotlin.$_$.j1;
-  var emptyList = kotlin_kotlin.$_$.h;
-  var isCharSequence = kotlin_kotlin.$_$.c1;
-  var trim = kotlin_kotlin.$_$.q1;
-  var charSequenceLength = kotlin_kotlin.$_$.t;
-  var charArrayOf = kotlin_kotlin.$_$.r;
-  var split = kotlin_kotlin.$_$.l1;
+  var Exception = kotlin_kotlin.$_$.w1;
+  var Exception_init_$Init$ = kotlin_kotlin.$_$.e;
+  var captureStack = kotlin_kotlin.$_$.s;
+  var toString = kotlin_kotlin.$_$.i1;
+  var hashCode = kotlin_kotlin.$_$.z;
+  var THROW_CCE = kotlin_kotlin.$_$.y1;
+  var equals = kotlin_kotlin.$_$.x;
+  var initMetadataForCompanion = kotlin_kotlin.$_$.b1;
+  var indexOf = kotlin_kotlin.$_$.k1;
+  var _Char___init__impl__6a9atx = kotlin_kotlin.$_$.f;
+  var indexOf_0 = kotlin_kotlin.$_$.l1;
+  var charSequenceGet = kotlin_kotlin.$_$.u;
+  var toIntOrNull = kotlin_kotlin.$_$.q1;
+  var isDigit = kotlin_kotlin.$_$.m1;
+  var emptyList = kotlin_kotlin.$_$.j;
+  var isCharSequence = kotlin_kotlin.$_$.e1;
+  var trim = kotlin_kotlin.$_$.t1;
+  var charSequenceLength = kotlin_kotlin.$_$.v;
+  var charArrayOf = kotlin_kotlin.$_$.t;
+  var split = kotlin_kotlin.$_$.o1;
   var ArrayList_init_$Create$ = kotlin_kotlin.$_$.c;
-  var trim_0 = kotlin_kotlin.$_$.p1;
-  var isWhitespace = kotlin_kotlin.$_$.k1;
-  var to = kotlin_kotlin.$_$.y1;
-  var mapOf = kotlin_kotlin.$_$.l;
-  var emptyMap = kotlin_kotlin.$_$.i;
-  var initMetadataForInterface = kotlin_kotlin.$_$.a1;
-  var toString_0 = kotlin_kotlin.$_$.x1;
-  var getStringHashCode = kotlin_kotlin.$_$.w;
-  var FunctionAdapter = kotlin_kotlin.$_$.p;
-  var isInterface = kotlin_kotlin.$_$.d1;
-  var Comparator = kotlin_kotlin.$_$.r1;
-  var compareValues = kotlin_kotlin.$_$.n;
-  var minWithOrNull = kotlin_kotlin.$_$.m;
-  var startsWith = kotlin_kotlin.$_$.m1;
-  var collectionSizeOrDefault = kotlin_kotlin.$_$.g;
+  var trim_0 = kotlin_kotlin.$_$.s1;
+  var isWhitespace = kotlin_kotlin.$_$.n1;
+  var to = kotlin_kotlin.$_$.b2;
+  var mapOf = kotlin_kotlin.$_$.n;
+  var StringBuilder_init_$Create$ = kotlin_kotlin.$_$.d;
+  var Char__toInt_impl_vasixd = kotlin_kotlin.$_$.g;
+  var encodeToByteArray = kotlin_kotlin.$_$.j1;
+  var emptyMap = kotlin_kotlin.$_$.k;
+  var initMetadataForInterface = kotlin_kotlin.$_$.c1;
+  var toString_0 = kotlin_kotlin.$_$.a2;
+  var getStringHashCode = kotlin_kotlin.$_$.y;
+  var FunctionAdapter = kotlin_kotlin.$_$.r;
+  var isInterface = kotlin_kotlin.$_$.f1;
+  var Comparator = kotlin_kotlin.$_$.u1;
+  var compareValues = kotlin_kotlin.$_$.p;
+  var minWithOrNull = kotlin_kotlin.$_$.o;
+  var startsWith = kotlin_kotlin.$_$.p1;
+  var collectionSizeOrDefault = kotlin_kotlin.$_$.i;
   var ArrayList_init_$Create$_0 = kotlin_kotlin.$_$.b;
-  var listOf = kotlin_kotlin.$_$.k;
-  var joinToString = kotlin_kotlin.$_$.j;
-  var trimMargin = kotlin_kotlin.$_$.o1;
+  var listOf = kotlin_kotlin.$_$.m;
+  var joinToString = kotlin_kotlin.$_$.l;
+  var trimMargin = kotlin_kotlin.$_$.r1;
   //endregion
   //region block: pre-declaration
   initMetadataForObject(JsTimeBridge, 'JsTimeBridge');
@@ -309,6 +312,7 @@
     this.TOKEN_URL_1 = 'https://www.privateinternetaccess.com/api/client/v2/token';
     this.ADD_KEY_PORT_1 = 1337;
     this.ADD_KEY_PATH_1 = 'addKey';
+    this.HEX_DIGITS_1 = '0123456789ABCDEF';
   }
   protoOf(Companion).get_TOKEN_URL_e2iny8_k$ = function () {
     return this.TOKEN_URL_1;
@@ -318,6 +322,9 @@
   };
   protoOf(Companion).get_ADD_KEY_PATH_ffcbro_k$ = function () {
     return this.ADD_KEY_PATH_1;
+  };
+  protoOf(Companion).get_HEX_DIGITS_dpnfhv_k$ = function () {
+    return this.HEX_DIGITS_1;
   };
   var Companion_instance;
   function Companion_getInstance() {
@@ -498,7 +505,7 @@
     return this.addKey_fn9fng_k$(hostname, authToken.get_value_j01efc_k$(), publicKey);
   };
   protoOf(PiaClient).addKey_fn9fng_k$ = function (hostname, token, publicKey) {
-    var url = 'https://' + hostname + ':1337/addKey?pt=' + token + '&pubkey=' + publicKey;
+    var url = 'https://' + hostname + ':1337/addKey' + ('?pt=' + this.urlEncode_lg19uo_k$(token) + '&pubkey=' + this.urlEncode_lg19uo_k$(publicKey));
     var body = this.http_1.get$default_3gqdgv_k$(url);
     var status = findStringField(this, body, 'status');
     if (!(status === 'OK')) {
@@ -529,6 +536,60 @@
     var dnsServers = findStringArray(this, body, 'dns_servers');
     var lease = new WireGuardLease(peerIp, serverKey, hostname + ':' + serverPort);
     return new LeaseResult(lease, dnsServers);
+  };
+  protoOf(PiaClient).urlEncode_lg19uo_k$ = function (raw) {
+    var out = StringBuilder_init_$Create$();
+    var i = 0;
+    while (i < raw.length) {
+      var ch = charSequenceGet(raw, i);
+      if ((_Char___init__impl__6a9atx(97) <= ch ? ch <= _Char___init__impl__6a9atx(122) : false) || (_Char___init__impl__6a9atx(65) <= ch ? ch <= _Char___init__impl__6a9atx(90) : false) || (_Char___init__impl__6a9atx(48) <= ch ? ch <= _Char___init__impl__6a9atx(57) : false) || ch === _Char___init__impl__6a9atx(45) || ch === _Char___init__impl__6a9atx(95) || ch === _Char___init__impl__6a9atx(46) || ch === _Char___init__impl__6a9atx(126)) {
+        out.append_am5a4z_k$(ch);
+      } else {
+        // Inline function 'kotlin.code' call
+        var this_0 = charSequenceGet(raw, i);
+        var code = Char__toInt_impl_vasixd(this_0);
+        if (code < 128) {
+          out.append_am5a4z_k$(_Char___init__impl__6a9atx(37));
+          out.append_am5a4z_k$(charSequenceGet('0123456789ABCDEF', code >> 4 & 15));
+          out.append_am5a4z_k$(charSequenceGet('0123456789ABCDEF', code & 15));
+        } else {
+          var j = i;
+          $l$loop: while (true) {
+            var tmp;
+            if (j < raw.length) {
+              // Inline function 'kotlin.code' call
+              var this_1 = charSequenceGet(raw, j);
+              tmp = Char__toInt_impl_vasixd(this_1) >= 128;
+            } else {
+              tmp = false;
+            }
+            if (!tmp) {
+              break $l$loop;
+            }
+            j = j + 1 | 0;
+          }
+          // Inline function 'kotlin.text.substring' call
+          var startIndex = i;
+          var endIndex = j;
+          // Inline function 'kotlin.js.asDynamic' call
+          var tmp$ret$3 = raw.substring(startIndex, endIndex);
+          var bytes = encodeToByteArray(tmp$ret$3);
+          var inductionVariable = 0;
+          var last = bytes.length;
+          while (inductionVariable < last) {
+            var b = bytes[inductionVariable];
+            inductionVariable = inductionVariable + 1 | 0;
+            var v = b & 255;
+            out.append_am5a4z_k$(_Char___init__impl__6a9atx(37));
+            out.append_am5a4z_k$(charSequenceGet('0123456789ABCDEF', v >> 4 & 15));
+            out.append_am5a4z_k$(charSequenceGet('0123456789ABCDEF', v & 15));
+          }
+          i = j - 1 | 0;
+        }
+      }
+      i = i + 1 | 0;
+    }
+    return out.toString();
   };
   function HttpPort() {
   }
