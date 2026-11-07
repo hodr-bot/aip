@@ -1,4 +1,4 @@
-package pia.app
+package fr.hodr.aip
 
 import android.app.Notification
 import android.app.NotificationChannel

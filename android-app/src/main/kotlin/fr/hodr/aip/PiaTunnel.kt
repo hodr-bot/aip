@@ -1,4 +1,4 @@
-package pia.app
+package fr.hodr.aip
 
 import com.wireguard.android.backend.Tunnel
 

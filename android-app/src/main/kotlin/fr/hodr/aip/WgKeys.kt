@@ -1,4 +1,4 @@
-package pia.app
+package fr.hodr.aip
 
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences

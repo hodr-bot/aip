@@ -1,4 +1,4 @@
-package pia.app
+package fr.hodr.aip
 
 import android.app.Activity
 import android.content.Intent
