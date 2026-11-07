@@ -28,3 +28,12 @@ android {
         jvmTarget = "17"
     }
 }
+
+dependencies {
+    implementation(files("$rootDir/build/libs/pia-core-jvm.jar"))
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+}
+
+tasks.named("preBuild") {
+    dependsOn(":jvmJar")
+}
