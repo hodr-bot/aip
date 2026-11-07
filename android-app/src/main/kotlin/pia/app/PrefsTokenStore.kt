@@ -57,11 +57,18 @@ class PrefsTokenStore(context: Context) : TokenStore {
             .apply()
     }
 
+    fun saveLastHost(hostname: String) {
+        prefs.edit().putString(KEY_LAST_HOST, hostname).apply()
+    }
+
+    fun loadLastHost(): String? = prefs.getString(KEY_LAST_HOST, null)
+
     companion object {
         private const val PREFS_NAME = "pia-auth"
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
         private const val KEY_TOKEN = "token"
         private const val KEY_ISSUED_AT = "issuedAt"
+        private const val KEY_LAST_HOST = "lastHost"
     }
 }

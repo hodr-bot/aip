@@ -14,6 +14,7 @@ import com.wireguard.config.InetNetwork
 import com.wireguard.config.Interface
 import com.wireguard.config.Peer
 import com.wireguard.crypto.Key
+import pia.core.PiaClient
 
 /**
  * Foreground [VpnService] hosting the WireGuard tunnel through [GoBackend].
@@ -77,8 +78,11 @@ class PiaVpnService : VpnService() {
         if (peerIp.isNullOrEmpty() || endpoint.isNullOrEmpty() ||
             serverKey.isNullOrEmpty() || serverPort <= 0 || serverPort > 65535
         ) {
-            stopSelf()
-            return START_NOT_STICKY
+            // No lease in the intent (boot with Always-on, system restart):
+            // rebuild it from the stored account and last server.
+            goForeground()
+            Thread { restoreLease() }.start()
+            return START_STICKY
         }
         goForeground()
         Thread {
@@ -109,6 +113,36 @@ class PiaVpnService : VpnService() {
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .build()
         startForeground(NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Rebuild a lease after a system restart (boot with Always-on):
+     * stored credentials plus last server hostname give a fresh token
+     * and a fresh addKey lease. Stops the service when nothing stored.
+     */
+    private fun restoreLease() {
+        val store = PrefsTokenStore(this)
+        val hostname = store.loadLastHost()
+        if (hostname.isNullOrEmpty() || store.loadUsername() == null) {
+            stopSelf()
+            return
+        }
+        try {
+            val client = PiaClient(HttpUrlConnectionPort(), SystemClock())
+            val token = client.ensureValidToken(store)
+            val publicKey = WgKeys.loadOrGenerate(this).publicKey.toBase64()
+            val result = client.addKey(hostname, token, publicKey)
+            bringUp(
+                result.lease.peerIp,
+                result.lease.endpoint.substringBeforeLast(':'),
+                result.lease.endpoint.substringAfterLast(':').toInt(),
+                result.lease.serverPublicKey,
+                result.dnsServers.joinToString(","),
+            )
+        } catch (error: Exception) {
+            // Offline at boot or stale account: stop, the system retries.
+            stopSelf()
+        }
     }
 
     private fun bringUp(
