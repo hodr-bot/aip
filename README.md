@@ -17,6 +17,23 @@ injected ports (`Ports.kt`) so both consumers share the same logic.
 Token model + refresh policy, region pick, WireGuard conf builder,
 kill-switch decision. Live HTTP comes next behind `HttpPort` fakes.
 
+## Layout
+
+Kotlin Multiplatform (`jvm` + `js(IR)`), Kotlin 2.0.21.
+Main sources live in `src/commonMain/kotlin/pia/core`,
+tests in `src/jvmTest/kotlin/pia/core`. Stdlib only, no Android
+target, no karma, no `jsTest` sources.
+
+## Consuming
+
+- Firefox consumes the JS bundle (`jsNodeDevelopmentLibraryDistribution`
+  -> `build/dist/js/developmentLibrary/pia-core.js`).
+- Android consumes the JVM artifact (`jvmJar` -> `pia-core-jvm.jar`).
+
 ## Verify
 
-`gradle test`
+```sh
+gradle jvmTest
+gradle jsJar jsNodeDevelopmentLibraryDistribution
+node --check build/dist/js/developmentLibrary/pia-core.js
+```
