@@ -1,8 +1,11 @@
 plugins {
     kotlin("multiplatform") version "2.0.21"
+    id("com.android.application") version "8.5.2" apply false
+    kotlin("android") version "2.0.21" apply false
 }
 
 repositories {
+    google()
     mavenCentral()
 }
 
