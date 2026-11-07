@@ -187,15 +187,6 @@
                     android:text="Allow local network"
                     android:textColor="@color/pia_text"
                     android:buttonTint="@color/pia_accent" />
-
-                <Button
-                    android:id="@+id/disconnect"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Disconnect"
-                    android:textColor="@color/pia_error" />
             </LinearLayout>
 
             <!-- Footer: quiet secondary actions. -->

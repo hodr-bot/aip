@@ -84,7 +84,6 @@ class MainActivity : Activity() {
         val pickServerButton: View = findViewById(R.id.pickServer)
         selectedStatus = findViewById(R.id.selectedStatus)
         connectButton = findViewById(R.id.connect)
-        val disconnectButton: View = findViewById(R.id.disconnect)
         val refreshButton: View = findViewById(R.id.refresh)
         val switchAccountButton: View = findViewById(R.id.switchAccount)
         val vpnSettingsButton: View = findViewById(R.id.vpnSettings)
@@ -127,8 +126,6 @@ class MainActivity : Activity() {
         switchAccountButton.setOnClickListener {
             showLoginView(true)
         }
-
-        disconnectButton.setOnClickListener { doDisconnect() }
 
         loginButton.setOnClickListener {
             val username = usernameField.text.toString()
