@@ -1,0 +1,28 @@
+{
+  "manifest_version": 2,
+  "name": "PIA Core",
+  "version": "0.1.0",
+  "description": "PIA proxy with shared core: 12h token refresh, fail-closed kill switch.",
+  "background": {
+    "scripts": [
+      "vendor/kotlin-kotlin-stdlib.js",
+      "vendor/pia-core.js",
+      "background.js"
+    ]
+  },
+  "permissions": [
+    "alarms",
+    "storage",
+    "proxy",
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>",
+    "https://www.privateinternetaccess.com/*"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "pia-core@local",
+      "strict_min_version": "91.0"
+    }
+  }
+}
