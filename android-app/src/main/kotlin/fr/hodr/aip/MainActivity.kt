@@ -67,6 +67,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        TlsTrust.init(this)
         tokenStore = PrefsTokenStore(this)
         setContentView(R.layout.activity_main)
 

@@ -8,10 +8,13 @@ import java.net.URLEncoder
 import pia.core.Clock
 import pia.core.HttpPort
 
+import javax.net.ssl.HttpsURLConnection
+
 /** OkHttp-free [HttpPort] backed by java.net.HttpURLConnection. No secrets logged. */
 class HttpUrlConnectionPort : HttpPort {
     override fun postForm(url: String, fields: Map<String, String>): String {
         val conn = URL(url).openConnection() as HttpURLConnection
+        (conn as? HttpsURLConnection)?.let { TlsTrust.applyTo(it) }
         try {
             conn.requestMethod = "POST"
             conn.doOutput = true
@@ -32,6 +35,7 @@ class HttpUrlConnectionPort : HttpPort {
 
     override fun get(url: String, headers: Map<String, String>): String {
         val conn = URL(url).openConnection() as HttpURLConnection
+        (conn as? HttpsURLConnection)?.let { TlsTrust.applyTo(it) }
         try {
             conn.requestMethod = "GET"
             conn.connectTimeout = 15_000
