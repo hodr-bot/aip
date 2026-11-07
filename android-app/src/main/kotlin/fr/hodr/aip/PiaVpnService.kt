@@ -45,6 +45,7 @@ class PiaVpnService : VpnService() {
         const val EXTRA_PROBE_IPS = "probeIps"
 
         private const val CHANNEL_ID = "aip-vpn"
+        private const val SILENT_CHANNEL_ID = "aip-vpn-active"
         private const val LEGACY_CHANNEL_ID = "pia-vpn"
         private const val ALERT_CHANNEL_ID = "aip-alerts"
         private const val NOTIFICATION_ID = 1
@@ -169,25 +170,29 @@ class PiaVpnService : VpnService() {
 
     private fun goForeground() {
         val manager = getSystemService(NotificationManager::class.java)
-        // Drop the legacy "PIA VPN" channel name; the mandatory sticky
-        // notification now reads "AIP VPN". Android forces a foreground service
-        // to show one while the tunnel runs, so it stays minimal and silent.
+        // Android mandates an ongoing notification while a VpnService runs:
+        // it cannot be removed, only made as quiet as the system allows.
+        // No success alert is ever posted; problems alone use the alerts
+        // channel. Migrate the old LOW channel to a MIN one.
         manager?.deleteNotificationChannel(LEGACY_CHANNEL_ID)
-        if (manager?.getNotificationChannel(CHANNEL_ID) == null) {
+        manager?.deleteNotificationChannel(CHANNEL_ID)
+        if (manager?.getNotificationChannel(SILENT_CHANNEL_ID) == null) {
             manager?.createNotificationChannel(
                 NotificationChannel(
-                    CHANNEL_ID,
+                    SILENT_CHANNEL_ID,
                     "AIP VPN",
-                    NotificationManager.IMPORTANCE_LOW,
+                    NotificationManager.IMPORTANCE_MIN,
                 ),
             )
         }
         val openApp = openAppIntent()
-        val notification: Notification = Notification.Builder(this, CHANNEL_ID)
+        val notification: Notification = Notification.Builder(this, SILENT_CHANNEL_ID)
             .setContentTitle("AIP VPN")
             .setContentText("VPN active")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openApp)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -197,6 +202,19 @@ class PiaVpnService : VpnService() {
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    /** Drop the mandatory foreground notice the moment no tunnel runs. */
+    private fun stopForegroundNotice() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (ignored: Exception) {
         }
     }
 
@@ -519,6 +537,7 @@ class PiaVpnService : VpnService() {
         backend = null
         tunnel = null
         writeState(false, serverId, reason)
+        stopForegroundNotice()
         postAlert("AIP VPN tunnel down", "Disconnected: $reason")
         stopSelf()
     }
@@ -580,6 +599,10 @@ class PiaVpnService : VpnService() {
         val keepError = prefs.getString(STATE_LAST_ERROR, null)
         writeState(false, keepServer, keepError)
         activeServerId = null
+        // User disconnect: zero residue. Drop the mandatory notice now and
+        // clear any stale problem alert; success itself stays silent.
+        stopForegroundNotice()
+        clearAlert()
         if (activeBackend != null && activeTunnel != null) {
             Thread {
                 try {

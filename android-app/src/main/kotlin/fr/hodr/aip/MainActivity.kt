@@ -157,19 +157,53 @@ class MainActivity : Activity() {
         }
 
         connectButton.setOnClickListener {
-            // The hero is a single toggle, like other VPN apps: tap to
-            // connect, tap again to disconnect. No separate button needed.
+            // Hero toggles, and switches straight to a newly picked server:
+            // same server -> disconnect, other server picked -> move over.
             val (live, liveServer, liveAt) = readVpnState()
             val liveConnected = live && (System.currentTimeMillis() - liveAt < PiaVpnService.ALIVE_FRESH_MS)
-            if (liveConnected && !liveServer.isNullOrEmpty()) {
-                doDisconnect()
-                return@setOnClickListener
-            }
             val entry = selected
             if (entry == null) {
                 connectStatus.text = "Select a server first"
                 return@setOnClickListener
             }
+            if (liveConnected && !liveServer.isNullOrEmpty()) {
+                if (entry.id == liveServer) {
+                    doDisconnect()
+                    return@setOnClickListener
+                }
+                switchServer(entry)
+                return@setOnClickListener
+            }
+            connectTo(entry)
+        }
+
+        val authFailed = intent?.getBooleanExtra(EXTRA_AUTH_FAILED, false) ?: false
+        showLoginView(tokenStore.loadPassword() == null || authFailed)
+        refreshServers()
+        restoreSession()
+        // Live state: the service writes pia-vpn-state from a worker thread the
+        // moment it proves or fails traffic, while the old UI only refreshed on
+        // onResume or after a fixed 30s delay. That gap is exactly why the
+        // notification (posted instantly) arrived before the app caught up.
+        // Listen for every state write and refresh immediately.
+        val prefs = getSharedPreferences(PREFS_STATE, MODE_PRIVATE)
+        stateListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            runOnUiThread {
+                val (stored, _, aliveAt) = readVpnState()
+                val fresh = stored &&
+                    (System.currentTimeMillis() - aliveAt < PiaVpnService.ALIVE_FRESH_MS)
+                if (fresh || readLastError() != null) {
+                    setConnecting(false)
+                }
+                updateConnectState()
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(stateListener)
+        updateConnectState()
+    }
+
+    /** Shared connect path: token, addKey, permission, launch. */
+    private fun connectTo(entry: ServerEntry) {
             setConnecting(true)
             connectStatus.text = "Contacting PIA..."
             Thread {
@@ -221,31 +255,20 @@ class MainActivity : Activity() {
                     notifyAlert("Connect failed", message)
                 }
             }.start()
-        }
+    }
 
-        val authFailed = intent?.getBooleanExtra(EXTRA_AUTH_FAILED, false) ?: false
-        showLoginView(tokenStore.loadPassword() == null || authFailed)
-        refreshServers()
-        restoreSession()
-        // Live state: the service writes pia-vpn-state from a worker thread the
-        // moment it proves or fails traffic, while the old UI only refreshed on
-        // onResume or after a fixed 30s delay. That gap is exactly why the
-        // notification (posted instantly) arrived before the app caught up.
-        // Listen for every state write and refresh immediately.
-        val prefs = getSharedPreferences(PREFS_STATE, MODE_PRIVATE)
-        stateListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-            runOnUiThread {
-                val (stored, _, aliveAt) = readVpnState()
-                val fresh = stored &&
-                    (System.currentTimeMillis() - aliveAt < PiaVpnService.ALIVE_FRESH_MS)
-                if (fresh || readLastError() != null) {
-                    setConnecting(false)
-                }
-                updateConnectState()
+    /** Switch server in one tap: tear the old tunnel down, connect the new. */
+    private fun switchServer(entry: ServerEntry) {
+        try {
+            val intent = Intent(this, PiaVpnService::class.java).apply {
+                action = PiaVpnService.ACTION_DISCONNECT
             }
+            startService(intent)
+        } catch (ignored: Exception) {
         }
-        prefs.registerOnSharedPreferenceChangeListener(stateListener)
-        updateConnectState()
+        pendingLease = null
+        pendingServer = null
+        connectTo(entry)
     }
 
     override fun onDestroy() {
@@ -490,7 +513,7 @@ class MainActivity : Activity() {
             else -> {
                 if (!connecting) {
                     connectStatus.text = "Connected"
-                    errorDetail.text = "$connectedTitle (other server picked)"
+                    errorDetail.text = "$connectedTitle (other server picked — tap to switch)"
                 } else {
                     connectStatus.text = "Connecting…"
                     errorDetail.text = ""
