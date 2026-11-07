@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
+import android.widget.Button
 import android.widget.CheckBox
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -52,7 +53,7 @@ class MainActivity : Activity() {
     private lateinit var passwordField: TextInputEditText
     private lateinit var loginStatus: TextView
     private lateinit var selectedStatus: TextView
-    private lateinit var connectButton: View
+    private lateinit var connectButton: Button
     private lateinit var connectStatus: TextView
     private lateinit var connectProgress: ProgressBar
     private lateinit var allowLanBox: CheckBox
@@ -365,7 +366,7 @@ class MainActivity : Activity() {
         connectProgress.visibility = if (active) View.VISIBLE else View.GONE
     }
 
-    /** Connect button + status text follow the persisted vpn state. */
+    /** Hero button + status pill follow the persisted vpn state. */
     private fun updateConnectState() {
         val (stored, serverId, aliveAt) = readVpnState()
         // The service heartbeats every 5s. A "connected" flag with a stale
@@ -381,29 +382,44 @@ class MainActivity : Activity() {
                 if (!connecting) {
                     val lastError = readLastError()
                     connectStatus.text = if (lastError.isNullOrEmpty()) {
-                        "Disconnected"
+                        "Off"
                     } else {
-                        "Disconnected: $lastError"
+                        "Off — $lastError"
                     }
+                } else {
+                    connectStatus.text = "…"
                 }
-                connectButton.isEnabled = current != null
+                connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_off)
+                connectButton.isEnabled = current != null && !connecting
+                connectButton.setBackgroundResource(R.drawable.hero_off)
+                connectButton.setTextColor(getColor(R.color.pia_accent))
             }
             current?.id == serverId -> {
                 if (!connecting) {
                     val wobble = readLastError()
                     connectStatus.text = if (wobble.isNullOrEmpty()) {
-                        "Connected to $connectedTitle"
+                        "On"
                     } else {
-                        "Connected to $connectedTitle ($wobble)"
+                        "On — $wobble"
                     }
+                } else {
+                    connectStatus.text = "…"
                 }
+                connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
                 connectButton.isEnabled = false
+                connectButton.setBackgroundResource(R.drawable.hero_on)
+                connectButton.setTextColor(getColor(R.color.pia_background))
             }
             else -> {
                 if (!connecting) {
-                    connectStatus.text = "Connected to $connectedTitle (another server selected)"
+                    connectStatus.text = "On — $connectedTitle (other server picked)"
+                } else {
+                    connectStatus.text = "…"
                 }
-                connectButton.isEnabled = current != null
+                connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
+                connectButton.isEnabled = current != null && !connecting
+                connectButton.setBackgroundResource(R.drawable.hero_off)
+                connectButton.setTextColor(getColor(R.color.pia_accent))
             }
         }
     }

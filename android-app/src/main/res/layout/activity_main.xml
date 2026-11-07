@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- AIP VPN home: status pill, hero power button, server card, options, footer.
+     Same view ids as before, so MainActivity wiring is untouched. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/pia_background">
+    android:background="@color/pia_background"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -11,65 +13,52 @@
         android:orientation="vertical"
         android:padding="20dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="PIA"
-            android:textSize="34sp"
-            android:textStyle="bold"
-            android:textColor="@color/pia_accent" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Fast private tunnel"
-            android:textColor="@color/pia_muted"
-            android:layout_marginBottom="16dp" />
-
         <LinearLayout
             android:id="@+id/loginContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <com.google.android.material.textfield.TextInputLayout
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="AIP VPN"
+                android:textSize="40sp"
+                android:textStyle="bold"
+                android:textColor="@color/pia_accent" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Fast private tunnel"
+                android:textColor="@color/pia_muted"
+                android:layout_marginBottom="20dp" />
+
+            <EditText
+                android:id="@+id/username"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Username"
-                app:boxBackgroundColor="@color/pia_surface"
-                android:layout_marginBottom="8dp">
+                android:hint="PIA username"
+                android:inputType="text"
+                android:textColor="@color/pia_text"
+                android:textColorHint="@color/pia_muted"
+                android:layout_marginBottom="12dp" />
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/username"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text|textEmailAddress"
-                    android:textColor="@color/pia_text" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
+            <EditText
+                android:id="@+id/password"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Password"
-                app:boxBackgroundColor="@color/pia_surface"
-                app:passwordToggleEnabled="true"
-                android:layout_marginBottom="8dp">
+                android:hint="PIA password"
+                android:inputType="textPassword"
+                android:textColor="@color/pia_text"
+                android:textColorHint="@color/pia_muted"
+                android:layout_marginBottom="16dp" />
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/password"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text|textPassword"
-                    android:textColor="@color/pia_text" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.button.MaterialButton
+            <Button
                 android:id="@+id/login"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Login"
-                app:cornerRadius="12dp"
-                android:layout_marginBottom="4dp" />
+                android:text="Log in" />
 
             <TextView
                 android:id="@+id/loginStatus"
@@ -77,7 +66,7 @@
                 android:layout_height="wrap_content"
                 android:text="Not logged in"
                 android:textColor="@color/pia_muted"
-                android:layout_marginBottom="16dp" />
+                android:layout_marginTop="8dp" />
         </LinearLayout>
 
         <LinearLayout
@@ -86,93 +75,152 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/refresh"
-                style="?attr/materialButtonOutlinedStyle"
+            <!-- Header: brand + status pill. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Refresh servers"
-                app:cornerRadius="12dp"
-                android:layout_marginBottom="8dp" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/pickServer"
-                style="?attr/materialButtonOutlinedStyle"
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="AIP VPN"
+                    android:textColor="@color/pia_accent"
+                    android:textSize="28sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/connStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/pill_off"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingTop="7dp"
+                    android:paddingBottom="7dp"
+                    android:text="Off"
+                    android:textColor="@color/pia_text"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Hero power button. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Choose server"
-                app:cornerRadius="12dp"
-                android:layout_marginBottom="4dp" />
+                android:layout_marginTop="26dp"
+                android:layout_marginBottom="6dp"
+                android:gravity="center"
+                android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/selectedStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="No server selected"
-                android:textColor="@color/pia_muted"
-                android:layout_marginBottom="16dp" />
+                <Button
+                    android:id="@+id/connect"
+                    android:layout_width="176dp"
+                    android:layout_height="176dp"
+                    android:background="@drawable/hero_off"
+                    android:text="Connect"
+                    android:textColor="@color/pia_accent"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
 
-            <CheckBox
-                android:id="@+id/allowLan"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Allow local network"
-                android:textColor="@color/pia_text"
-                android:buttonTint="@color/pia_accent"
-                android:layout_marginBottom="8dp" />
+                <ProgressBar
+                    android:id="@+id/connectProgress"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="176dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:indeterminate="true"
+                    android:visibility="gone" />
+            </LinearLayout>
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/connect"
+            <!-- Server card: current choice + change action. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Connect"
-                android:textSize="18sp"
-                app:cornerRadius="12dp"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginTop="14dp"
+                android:background="@drawable/card_bg"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="16dp">
 
-            <ProgressBar
-                android:id="@+id/connectProgress"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:visibility="gone"
-                android:layout_marginBottom="8dp" />
+                <TextView
+                    android:id="@+id/selectedStatus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Tap Change to pick a server"
+                    android:textColor="@color/pia_text"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/disconnect"
-                style="?attr/materialButtonOutlinedStyle"
+                <Button
+                    android:id="@+id/pickServer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Change" />
+            </LinearLayout>
+
+            <!-- Options card. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Disconnect"
-                app:cornerRadius="12dp"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginTop="12dp"
+                android:background="@drawable/card_bg"
+                android:orientation="vertical"
+                android:padding="16dp">
 
-            <TextView
-                android:id="@+id/connStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Not connected"
-                android:textColor="@color/pia_muted"
-                android:fontFamily="monospace"
-                android:textSize="13sp"
-                android:layout_marginBottom="8dp" />
+                <CheckBox
+                    android:id="@+id/allowLan"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Allow local network"
+                    android:textColor="@color/pia_text"
+                    android:buttonTint="@color/pia_accent" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/switchAccount"
-                style="?attr/materialButtonOutlinedStyle"
+                <Button
+                    android:id="@+id/disconnect"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Disconnect"
+                    android:textColor="@color/pia_error" />
+            </LinearLayout>
+
+            <!-- Footer: quiet secondary actions. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Switch account"
-                app:cornerRadius="12dp"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginTop="18dp"
+                android:gravity="center"
+                android:orientation="horizontal">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/vpnSettings"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Android VPN settings"
-                app:cornerRadius="12dp" />
+                <Button
+                    android:id="@+id/refresh"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Refresh"
+                    android:textColor="@color/pia_muted" />
+
+                <Button
+                    android:id="@+id/vpnSettings"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="VPN settings"
+                    android:textColor="@color/pia_muted" />
+
+                <Button
+                    android:id="@+id/switchAccount"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Account"
+                    android:textColor="@color/pia_muted" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 </ScrollView>
