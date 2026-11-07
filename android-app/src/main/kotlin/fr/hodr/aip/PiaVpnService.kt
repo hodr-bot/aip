@@ -144,14 +144,14 @@ class PiaVpnService : VpnService() {
     private fun goForeground() {
         val manager = getSystemService(NotificationManager::class.java)
         // Drop the legacy "PIA VPN" channel name; the mandatory sticky
-        // notification now reads "AIP". Android forces a foreground service
+        // notification now reads "AIP VPN". Android forces a foreground service
         // to show one while the tunnel runs, so it stays minimal and silent.
         manager?.deleteNotificationChannel(LEGACY_CHANNEL_ID)
         if (manager?.getNotificationChannel(CHANNEL_ID) == null) {
             manager?.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "AIP",
+                    "AIP VPN",
                     NotificationManager.IMPORTANCE_LOW,
                 ),
             )
@@ -163,7 +163,7 @@ class PiaVpnService : VpnService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("AIP")
+            .setContentTitle("AIP VPN")
             .setContentText("VPN active")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openApp)
@@ -208,7 +208,7 @@ class PiaVpnService : VpnService() {
         } catch (error: Exception) {
             // Offline at boot or stale account: alert, then stop; the system retries.
             writeState(false, store.loadLastServerId(), error.message ?: error.javaClass.simpleName)
-            postAlert("AIP tunnel down", "Restore failed: ${error.message ?: error.javaClass.simpleName}")
+            postAlert("AIP VPN tunnel down", "Restore failed: ${error.message ?: error.javaClass.simpleName}")
             stopSelf()
         }
     }
@@ -263,7 +263,7 @@ class PiaVpnService : VpnService() {
             tunnel = null
             val reason = error.message ?: error.javaClass.simpleName
             writeState(false, serverId, reason)
-            postAlert("AIP tunnel down", "Unexpected teardown: $reason")
+            postAlert("AIP VPN tunnel down", "Unexpected teardown: $reason")
             stopSelf()
         }
     }
@@ -384,7 +384,7 @@ class PiaVpnService : VpnService() {
         backend = null
         tunnel = null
         writeState(false, serverId, reason)
-        postAlert("AIP tunnel down", "Connected but no traffic: $reason")
+        postAlert("AIP VPN tunnel down", "Connected but no traffic: $reason")
         stopSelf()
     }
 
@@ -399,7 +399,7 @@ class PiaVpnService : VpnService() {
             manager.createNotificationChannel(
                 NotificationChannel(
                     ALERT_CHANNEL_ID,
-                    "AIP alerts",
+                    "AIP VPN alerts",
                     NotificationManager.IMPORTANCE_HIGH,
                 ),
             )
