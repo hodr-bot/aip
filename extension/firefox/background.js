@@ -7,11 +7,12 @@
  * - UMD wrapper: AMD via define(), CommonJS via module.exports, otherwise a
  *   browser global populated as globalThis['pia-core'] (after its
  *   'kotlin-kotlin-stdlib' dependency is loaded first).
- * - The factory currently returns an EMPTY namespace object: no JsExport, so
- *   Object.keys(require('pia-core.js')) is [] and none of the Kotlin
- *   declarations (pia.core.PiaClient / KillSwitch / AuthToken / TokenStore /
- *   HttpPort / Clock / RegionPicker / WireGuard) are reachable from JS yet.
- * - Expected namespaced shape once @JsExport lands: pia.core.PiaClient with
+ * - The factory exports the JS-safe surface: enums, KillSwitch, WireGuard
+ *   and WireGuardLease. Time-based types (AuthToken, RegionEndpoint) and the
+ *   HttpPort-backed PiaClient stay JVM-only: Kotlin Long is not exportable,
+ *   so the background script below keeps its identical 24h/12h behaviour
+ *   mirror for the token timing and calls the live core for verdicts.
+ * - Expected namespaced shape: PiaClient (JVM-only) with
  *   login()/ensureValidToken()/addKey(), pia.core.KillSwitch.decide(state,
  *   killSwitchEnabled) returning ALLOW_ALL / ALLOW_LAN_ONLY / BLOCK_ALL,
  *   pia.core.AuthToken with 24h TTL refreshed after 12h (Token.kt).

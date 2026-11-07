@@ -13,52 +13,53 @@
   'use strict';
   //region block: imports
   var imul = Math.imul;
-  var THROW_IAE = kotlin_kotlin.$_$.r1;
+  var THROW_IAE = kotlin_kotlin.$_$.s1;
   var enumEntries = kotlin_kotlin.$_$.m;
   var Unit_getInstance = kotlin_kotlin.$_$.e;
-  var Enum = kotlin_kotlin.$_$.n1;
-  var protoOf = kotlin_kotlin.$_$.b1;
-  var initMetadataForClass = kotlin_kotlin.$_$.v;
+  var Enum = kotlin_kotlin.$_$.o1;
+  var protoOf = kotlin_kotlin.$_$.c1;
+  var defineProp = kotlin_kotlin.$_$.s;
+  var initMetadataForClass = kotlin_kotlin.$_$.w;
   var VOID = kotlin_kotlin.$_$.a;
-  var initMetadataForObject = kotlin_kotlin.$_$.y;
-  var Exception = kotlin_kotlin.$_$.o1;
+  var initMetadataForObject = kotlin_kotlin.$_$.z;
+  var Exception = kotlin_kotlin.$_$.p1;
   var Exception_init_$Init$ = kotlin_kotlin.$_$.c;
   var captureStack = kotlin_kotlin.$_$.o;
-  var toString = kotlin_kotlin.$_$.c1;
-  var hashCode = kotlin_kotlin.$_$.u;
-  var THROW_CCE = kotlin_kotlin.$_$.q1;
-  var equals = kotlin_kotlin.$_$.s;
-  var initMetadataForCompanion = kotlin_kotlin.$_$.w;
-  var indexOf = kotlin_kotlin.$_$.d1;
+  var toString = kotlin_kotlin.$_$.d1;
+  var hashCode = kotlin_kotlin.$_$.v;
+  var THROW_CCE = kotlin_kotlin.$_$.r1;
+  var equals = kotlin_kotlin.$_$.t;
+  var initMetadataForCompanion = kotlin_kotlin.$_$.x;
+  var indexOf = kotlin_kotlin.$_$.e1;
   var _Char___init__impl__6a9atx = kotlin_kotlin.$_$.d;
-  var indexOf_0 = kotlin_kotlin.$_$.e1;
+  var indexOf_0 = kotlin_kotlin.$_$.f1;
   var charSequenceGet = kotlin_kotlin.$_$.q;
-  var toIntOrNull = kotlin_kotlin.$_$.i1;
-  var isDigit = kotlin_kotlin.$_$.f1;
+  var toIntOrNull = kotlin_kotlin.$_$.j1;
+  var isDigit = kotlin_kotlin.$_$.g1;
   var emptyList = kotlin_kotlin.$_$.f;
-  var isCharSequence = kotlin_kotlin.$_$.z;
-  var trim = kotlin_kotlin.$_$.l1;
+  var isCharSequence = kotlin_kotlin.$_$.a1;
+  var trim = kotlin_kotlin.$_$.m1;
   var charSequenceLength = kotlin_kotlin.$_$.r;
   var charArrayOf = kotlin_kotlin.$_$.p;
-  var split = kotlin_kotlin.$_$.h1;
+  var split = kotlin_kotlin.$_$.i1;
   var ArrayList_init_$Create$ = kotlin_kotlin.$_$.b;
-  var trim_0 = kotlin_kotlin.$_$.k1;
-  var isWhitespace = kotlin_kotlin.$_$.g1;
-  var to = kotlin_kotlin.$_$.t1;
+  var trim_0 = kotlin_kotlin.$_$.l1;
+  var isWhitespace = kotlin_kotlin.$_$.h1;
+  var to = kotlin_kotlin.$_$.u1;
   var mapOf = kotlin_kotlin.$_$.j;
   var emptyMap = kotlin_kotlin.$_$.g;
-  var initMetadataForInterface = kotlin_kotlin.$_$.x;
-  var toString_0 = kotlin_kotlin.$_$.s1;
-  var getStringHashCode = kotlin_kotlin.$_$.t;
+  var initMetadataForInterface = kotlin_kotlin.$_$.y;
+  var toString_0 = kotlin_kotlin.$_$.t1;
+  var getStringHashCode = kotlin_kotlin.$_$.u;
   var FunctionAdapter = kotlin_kotlin.$_$.n;
-  var isInterface = kotlin_kotlin.$_$.a1;
-  var Comparator = kotlin_kotlin.$_$.m1;
-  var Long = kotlin_kotlin.$_$.p1;
+  var isInterface = kotlin_kotlin.$_$.b1;
+  var Comparator = kotlin_kotlin.$_$.n1;
+  var Long = kotlin_kotlin.$_$.q1;
   var compareValues = kotlin_kotlin.$_$.l;
   var minWithOrNull = kotlin_kotlin.$_$.k;
   var listOf = kotlin_kotlin.$_$.i;
   var joinToString = kotlin_kotlin.$_$.h;
-  var trimMargin = kotlin_kotlin.$_$.j1;
+  var trimMargin = kotlin_kotlin.$_$.k1;
   //endregion
   //region block: pre-declaration
   initMetadataForClass(ConnectionState, 'ConnectionState', VOID, Enum);
@@ -167,7 +168,7 @@
   function KillSwitch() {
     KillSwitch_instance = this;
   }
-  protoOf(KillSwitch).decide_ndgs2p_k$ = function (state, killSwitchEnabled) {
+  protoOf(KillSwitch).decide = function (state, killSwitchEnabled) {
     return state.equals(ConnectionState_CONNECTED_getInstance()) ? TrafficVerdict_ALLOW_ALL_getInstance() : killSwitchEnabled ? TrafficVerdict_BLOCK_ALL_getInstance() : TrafficVerdict_ALLOW_LAN_ONLY_getInstance();
   };
   var KillSwitch_instance;
@@ -722,44 +723,44 @@
     return true;
   };
   function WireGuardLease(peerIp, serverPublicKey, endpoint) {
-    this.peerIp_1 = peerIp;
-    this.serverPublicKey_1 = serverPublicKey;
-    this.endpoint_1 = endpoint;
+    this.peerIp = peerIp;
+    this.serverPublicKey = serverPublicKey;
+    this.endpoint = endpoint;
   }
   protoOf(WireGuardLease).get_peerIp_i03voy_k$ = function () {
-    return this.peerIp_1;
+    return this.peerIp;
   };
   protoOf(WireGuardLease).get_serverPublicKey_8wx4cq_k$ = function () {
-    return this.serverPublicKey_1;
+    return this.serverPublicKey;
   };
   protoOf(WireGuardLease).get_endpoint_30bvdu_k$ = function () {
-    return this.endpoint_1;
+    return this.endpoint;
   };
   protoOf(WireGuardLease).component1_7eebsc_k$ = function () {
-    return this.peerIp_1;
+    return this.peerIp;
   };
   protoOf(WireGuardLease).component2_7eebsb_k$ = function () {
-    return this.serverPublicKey_1;
+    return this.serverPublicKey;
   };
   protoOf(WireGuardLease).component3_7eebsa_k$ = function () {
-    return this.endpoint_1;
+    return this.endpoint;
   };
   protoOf(WireGuardLease).copy_nc7k0r_k$ = function (peerIp, serverPublicKey, endpoint) {
     return new WireGuardLease(peerIp, serverPublicKey, endpoint);
   };
-  protoOf(WireGuardLease).copy$default_h2eh61_k$ = function (peerIp, serverPublicKey, endpoint, $super) {
-    peerIp = peerIp === VOID ? this.peerIp_1 : peerIp;
-    serverPublicKey = serverPublicKey === VOID ? this.serverPublicKey_1 : serverPublicKey;
-    endpoint = endpoint === VOID ? this.endpoint_1 : endpoint;
-    return $super === VOID ? this.copy_nc7k0r_k$(peerIp, serverPublicKey, endpoint) : $super.copy_nc7k0r_k$.call(this, peerIp, serverPublicKey, endpoint);
+  protoOf(WireGuardLease).copy = function (peerIp, serverPublicKey, endpoint, $super) {
+    peerIp = peerIp === VOID ? this.peerIp : peerIp;
+    serverPublicKey = serverPublicKey === VOID ? this.serverPublicKey : serverPublicKey;
+    endpoint = endpoint === VOID ? this.endpoint : endpoint;
+    return this.copy_nc7k0r_k$(peerIp, serverPublicKey, endpoint);
   };
   protoOf(WireGuardLease).toString = function () {
-    return 'WireGuardLease(peerIp=' + this.peerIp_1 + ', serverPublicKey=' + this.serverPublicKey_1 + ', endpoint=' + this.endpoint_1 + ')';
+    return 'WireGuardLease(peerIp=' + this.peerIp + ', serverPublicKey=' + this.serverPublicKey + ', endpoint=' + this.endpoint + ')';
   };
   protoOf(WireGuardLease).hashCode = function () {
-    var result = getStringHashCode(this.peerIp_1);
-    result = imul(result, 31) + getStringHashCode(this.serverPublicKey_1) | 0;
-    result = imul(result, 31) + getStringHashCode(this.endpoint_1) | 0;
+    var result = getStringHashCode(this.peerIp);
+    result = imul(result, 31) + getStringHashCode(this.serverPublicKey) | 0;
+    result = imul(result, 31) + getStringHashCode(this.endpoint) | 0;
     return result;
   };
   protoOf(WireGuardLease).equals = function (other) {
@@ -768,18 +769,18 @@
     if (!(other instanceof WireGuardLease))
       return false;
     var tmp0_other_with_cast = other instanceof WireGuardLease ? other : THROW_CCE();
-    if (!(this.peerIp_1 === tmp0_other_with_cast.peerIp_1))
+    if (!(this.peerIp === tmp0_other_with_cast.peerIp))
       return false;
-    if (!(this.serverPublicKey_1 === tmp0_other_with_cast.serverPublicKey_1))
+    if (!(this.serverPublicKey === tmp0_other_with_cast.serverPublicKey))
       return false;
-    if (!(this.endpoint_1 === tmp0_other_with_cast.endpoint_1))
+    if (!(this.endpoint === tmp0_other_with_cast.endpoint))
       return false;
     return true;
   };
   function WireGuard() {
     WireGuard_instance = this;
   }
-  protoOf(WireGuard).allowedIps_tt7jy9_k$ = function (excludeLan) {
+  protoOf(WireGuard).allowedIps = function (excludeLan) {
     var tmp;
     if (!excludeLan) {
       tmp = listOf(['0.0.0.0/0', '::/0']);
@@ -788,16 +789,16 @@
     }
     return tmp;
   };
-  protoOf(WireGuard).lanBypassList_a3m5ep_k$ = function () {
+  protoOf(WireGuard).lanBypassList = function () {
     return listOf(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']);
   };
   protoOf(WireGuard).buildConf_ipgxqq_k$ = function (privateKey, address, dns, lease, excludeLan) {
-    var allowed = joinToString(this.allowedIps_tt7jy9_k$(excludeLan), ', ');
-    return trimMargin('\n            |[Interface]\n            |Address = ' + address + '\n            |PrivateKey = ' + privateKey + '\n            |DNS = ' + dns + '\n            |\n            |[Peer]\n            |PublicKey = ' + lease.serverPublicKey_1 + '\n            |Endpoint = ' + lease.endpoint_1 + '\n            |AllowedIPs = ' + allowed + '\n            |PersistentKeepalive = 25\n            |\n        ');
+    var allowed = joinToString(this.allowedIps(excludeLan), ', ');
+    return trimMargin('\n            |[Interface]\n            |Address = ' + address + '\n            |PrivateKey = ' + privateKey + '\n            |DNS = ' + dns + '\n            |\n            |[Peer]\n            |PublicKey = ' + lease.serverPublicKey + '\n            |Endpoint = ' + lease.endpoint + '\n            |AllowedIPs = ' + allowed + '\n            |PersistentKeepalive = 25\n            |\n        ');
   };
-  protoOf(WireGuard).buildConf$default_mdbyto_k$ = function (privateKey, address, dns, lease, excludeLan, $super) {
+  protoOf(WireGuard).buildConf = function (privateKey, address, dns, lease, excludeLan, $super) {
     excludeLan = excludeLan === VOID ? true : excludeLan;
-    return $super === VOID ? this.buildConf_ipgxqq_k$(privateKey, address, dns, lease, excludeLan) : $super.buildConf_ipgxqq_k$.call(this, privateKey, address, dns, lease, excludeLan);
+    return this.buildConf_ipgxqq_k$(privateKey, address, dns, lease, excludeLan);
   };
   var WireGuard_instance;
   function WireGuard_getInstance() {
@@ -805,6 +806,37 @@
       new WireGuard();
     return WireGuard_instance;
   }
+  //region block: post-declaration
+  defineProp(protoOf(ConnectionState), 'name', protoOf(ConnectionState).get_name_woqyms_k$);
+  defineProp(protoOf(ConnectionState), 'ordinal', protoOf(ConnectionState).get_ordinal_ip24qg_k$);
+  defineProp(protoOf(TrafficVerdict), 'name', protoOf(TrafficVerdict).get_name_woqyms_k$);
+  defineProp(protoOf(TrafficVerdict), 'ordinal', protoOf(TrafficVerdict).get_ordinal_ip24qg_k$);
+  //endregion
+  //region block: exports
+  function $jsExportAll$(_) {
+    var $pia = _.pia || (_.pia = {});
+    var $pia$core = $pia.core || ($pia.core = {});
+    $pia$core.ConnectionState = ConnectionState;
+    $pia$core.ConnectionState.values = values;
+    $pia$core.ConnectionState.valueOf = valueOf;
+    defineProp($pia$core.ConnectionState, 'CONNECTED', ConnectionState_CONNECTED_getInstance);
+    defineProp($pia$core.ConnectionState, 'CONNECTING', ConnectionState_CONNECTING_getInstance);
+    defineProp($pia$core.ConnectionState, 'DISCONNECTED', ConnectionState_DISCONNECTED_getInstance);
+    defineProp($pia$core.ConnectionState, 'DEGRADED', ConnectionState_DEGRADED_getInstance);
+    $pia$core.TrafficVerdict = TrafficVerdict;
+    $pia$core.TrafficVerdict.values = values_0;
+    $pia$core.TrafficVerdict.valueOf = valueOf_0;
+    defineProp($pia$core.TrafficVerdict, 'ALLOW_ALL', TrafficVerdict_ALLOW_ALL_getInstance);
+    defineProp($pia$core.TrafficVerdict, 'ALLOW_LAN_ONLY', TrafficVerdict_ALLOW_LAN_ONLY_getInstance);
+    defineProp($pia$core.TrafficVerdict, 'BLOCK_ALL', TrafficVerdict_BLOCK_ALL_getInstance);
+    defineProp($pia$core, 'KillSwitch', KillSwitch_getInstance);
+    var $pia = _.pia || (_.pia = {});
+    var $pia$core = $pia.core || ($pia.core = {});
+    $pia$core.WireGuardLease = WireGuardLease;
+    defineProp($pia$core, 'WireGuard', WireGuard_getInstance);
+  }
+  $jsExportAll$(_);
+  //endregion
   return _;
 }));
 

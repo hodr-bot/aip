@@ -1,11 +1,16 @@
+@file:OptIn(kotlin.js.ExperimentalJsExport::class)
 package pia.core
 
+import kotlin.js.JsExport
+
+@JsExport
 data class WireGuardLease(
     val peerIp: String,
     val serverPublicKey: String,
     val endpoint: String,
 )
 
+@JsExport
 object WireGuard {
     /**
      * Full-tunnel defaults. When [excludeLan] is set the consumer keeps

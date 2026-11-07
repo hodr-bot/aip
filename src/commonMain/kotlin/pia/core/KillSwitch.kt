@@ -1,5 +1,9 @@
+@file:OptIn(kotlin.js.ExperimentalJsExport::class)
 package pia.core
 
+import kotlin.js.JsExport
+
+@JsExport
 enum class ConnectionState {
     CONNECTED,
     CONNECTING,
@@ -7,6 +11,7 @@ enum class ConnectionState {
     DEGRADED,
 }
 
+@JsExport
 enum class TrafficVerdict {
     ALLOW_ALL,
     ALLOW_LAN_ONLY,
@@ -18,6 +23,7 @@ enum class TrafficVerdict {
  * The Firefox extension enforces it for browser traffic only;
  * the Android app enforces it system-wide via Always-on VPN.
  */
+@JsExport
 object KillSwitch {
     fun decide(state: ConnectionState, killSwitchEnabled: Boolean): TrafficVerdict =
         when {
