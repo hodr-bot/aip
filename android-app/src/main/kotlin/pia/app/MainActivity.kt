@@ -17,7 +17,6 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import pia.core.AuthToken
 import pia.core.Clock
 import pia.core.LeaseResult
 import pia.core.HttpPort
@@ -92,9 +91,7 @@ class MainActivity : Activity() {
     private val clock: Clock = SystemClock()
     private val client = PiaClient(http, clock)
     private val catalog = ServerCatalog(http)
-
-    @Volatile
-    private var authToken: AuthToken? = null
+    private lateinit var tokenStore: PrefsTokenStore
 
     @Volatile
     private var servers: List<ServerEntry> = emptyList()
@@ -115,6 +112,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        tokenStore = PrefsTokenStore(this)
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -188,7 +186,8 @@ class MainActivity : Activity() {
             Thread {
                 try {
                     val token = client.login(username, password)
-                    authToken = token
+                    tokenStore.saveCredentials(username, password)
+                    tokenStore.saveToken(token)
                     val remainingHours = token.remainingSec(clock.nowEpochSec()) / 3600
                     runOnUiThread {
                         loginStatus.text = "Token valid, remaining ~${remainingHours}h"
@@ -203,18 +202,18 @@ class MainActivity : Activity() {
 
         connectButton.setOnClickListener {
             val entry = selected
-            val token = authToken
             if (entry == null) {
                 connectStatus.text = "Select a server first"
-                return@setOnClickListener
-            }
-            if (token == null) {
-                connectStatus.text = "Login first"
                 return@setOnClickListener
             }
             connectStatus.text = "Connecting..."
             Thread {
                 try {
+                    val token = client.ensureValidToken(tokenStore)
+                    val remainingHours = token.remainingSec(clock.nowEpochSec()) / 3600
+                    runOnUiThread {
+                        loginStatus.text = "Token valid, remaining ~${remainingHours}h"
+                    }
                     val keyPair = WgKeys.loadOrGenerate(this@MainActivity)
                     val publicKey = keyPair.publicKey.toBase64()
                     val result = client.addKey(entry.hostname, token, publicKey)
@@ -239,6 +238,19 @@ class MainActivity : Activity() {
         }
 
         refreshServers()
+        restoreSession()
+    }
+
+    private fun restoreSession() {
+        val savedUsername = tokenStore.loadUsername()
+        if (savedUsername != null) {
+            usernameField.setText(savedUsername)
+        }
+        val cached = tokenStore.loadToken() ?: return
+        val remainingHours = cached.remainingSec(clock.nowEpochSec()) / 3600
+        if (remainingHours > 0) {
+            loginStatus.text = "Token restored, remaining ~${remainingHours}h"
+        }
     }
 
     private fun refreshServers() {
