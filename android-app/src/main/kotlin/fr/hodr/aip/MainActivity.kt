@@ -166,7 +166,7 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
             setConnecting(true)
-            connectStatus.text = "Connecting..."
+            connectStatus.text = "Contacting PIA..."
             Thread {
                 try {
                     val token = try {
@@ -190,6 +190,7 @@ class MainActivity : Activity() {
                     }
                     val keyPair = WgKeys.loadOrGenerate(this@MainActivity)
                     val publicKey = keyPair.publicKey.toBase64()
+                    runOnUiThread { connectStatus.text = "Requesting key..." }
                     val result = client.addKey(entry.hostname, token, publicKey)
                     pendingLease = result
                     pendingServer = entry
@@ -198,6 +199,7 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         val prepareIntent = VpnService.prepare(this@MainActivity)
                         if (prepareIntent != null) {
+                            connectStatus.text = "Waiting for VPN permission..."
                             startActivityForResult(prepareIntent, REQUEST_VPN_PERMISSION)
                         } else {
                             launchVpn(result, entry)

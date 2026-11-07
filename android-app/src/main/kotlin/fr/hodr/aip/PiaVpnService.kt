@@ -109,6 +109,7 @@ class PiaVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_DISCONNECT) {
+            clearAlert()
             bringDown()
             stopSelf()
             return START_NOT_STICKY
@@ -249,6 +250,7 @@ class PiaVpnService : VpnService() {
             // traffic flows through the tunnel; otherwise tear down loudly.
             if (verifyTraffic()) {
                 writeState(true, serverId, null)
+                clearAlert()
                 startMonitor(activeBackend, activeTunnel)
             } else {
                 failTraffic(activeBackend, activeTunnel, serverId, "the tunnel came up yet nothing flows through it")
@@ -276,14 +278,17 @@ class PiaVpnService : VpnService() {
      * flows; transport exceptions mean "tunnel up, internet dead".
      */
     private fun verifyTraffic(): Boolean {
-        repeat(2) {
+        // First attempt is quick (fast path when the network is healthy);
+        // the second gets full timeouts before we declare "no traffic".
+        val timeouts = listOf(5_000 to 8_000, 10_000 to 15_000)
+        for ((connectMs, readMs) in timeouts) {
             var connection: HttpsURLConnection? = null
             try {
                 val url = java.net.URL("https://www.privateinternetaccess.com/")
                 connection = url.openConnection() as HttpsURLConnection
                 connection.requestMethod = "GET"
-                connection.connectTimeout = 10_000
-                connection.readTimeout = 15_000
+                connection.connectTimeout = connectMs
+                connection.readTimeout = readMs
                 connection.instanceFollowRedirects = false
                 connection.responseCode
                 val buffer = ByteArray(8192)
@@ -386,6 +391,14 @@ class PiaVpnService : VpnService() {
         writeState(false, serverId, reason)
         postAlert("AIP VPN tunnel down", "Connected but no traffic: $reason")
         stopSelf()
+    }
+
+    private fun clearAlert() {
+        try {
+            getSystemService(NotificationManager::class.java)?.cancel(ALERT_NOTIFICATION_ID)
+        } catch (ignored: Exception) {
+            // Best effort: a stale alert is cosmetic, never fatal.
+        }
     }
 
     /**
