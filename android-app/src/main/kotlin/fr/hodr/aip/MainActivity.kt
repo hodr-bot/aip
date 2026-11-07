@@ -138,8 +138,10 @@ class MainActivity : Activity() {
                     }
                 } catch (error: Exception) {
                     val message = error.message ?: error.javaClass.simpleName
+                    tokenStore.clearCredentials()
                     runOnUiThread {
                         loginStatus.text = "Login failed: $message"
+                        showLoginView(true)
                     }
                     notifyAlert("Login failed", message)
                 }
@@ -182,6 +184,8 @@ class MainActivity : Activity() {
                         pendingLease = null
                         pendingServer = null
                         connectStatus.text = "Connect failed: $message"
+                        tokenStore.clearCredentials()
+                        showLoginView(true)
                     }
                     notifyAlert("Connect failed", message)
                 }

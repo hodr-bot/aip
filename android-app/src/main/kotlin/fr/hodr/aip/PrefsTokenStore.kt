@@ -57,6 +57,15 @@ class PrefsTokenStore(context: Context) : TokenStore {
             .apply()
     }
 
+    fun clearCredentials() {
+        prefs.edit()
+            .remove(KEY_USERNAME)
+            .remove(KEY_PASSWORD)
+            .remove(KEY_TOKEN)
+            .remove(KEY_ISSUED_AT)
+            .apply()
+    }
+
     fun saveLastHost(hostname: String) {
         prefs.edit().putString(KEY_LAST_HOST, hostname).apply()
     }
