@@ -42,8 +42,18 @@ class ServerCatalogTest {
         assertEquals(1, fakeHttp.getCalls)
         assertEquals(
             listOf(
-                ServerEntry("us_california", "us-california.privacy.network"),
-                ServerEntry("us_florida", "us-florida.privacy.network"),
+                ServerEntry(
+                    "us_california",
+                    "us-california.privacy.network",
+                    displayName = "US California",
+                    virtual = true,
+                ),
+                ServerEntry(
+                    "us_florida",
+                    "us-florida.privacy.network",
+                    displayName = "US Florida",
+                    virtual = true,
+                ),
             ),
             servers,
         )
@@ -95,5 +105,39 @@ class ServerCatalogTest {
 
         assertEquals("us_florida", catalog.pickBest(servers)?.id)
         assertNull(catalog.pickBest(emptyList()))
+    }
+
+    @Test
+    fun `fetchServers marks streaming virtual and physical regions`() {
+        val reply = """
+            |{"groups":{},"regions":[
+            |{"id":"de_germany-so","name":"DE Germany Streaming Optimized","dns":"de-germany-so.pvt.site","geo":false,"offline":false,"servers":{}},
+            |{"id":"ch_switzerland","name":"Switzerland","dns":"ch-zurich.privacy.network","geo":true,"offline":false,"servers":{}},
+            |{"id":"xx_noname","dns":"xx-noname.privacy.network","offline":false,"servers":{}}
+            |]}
+        """.trimMargin()
+        val servers = ServerCatalog(CatalogFakeHttp(getReply = reply)).fetchServers()
+
+        assertEquals(3, servers.size)
+        val streaming = servers[0]
+        assertEquals("DE Germany Streaming Optimized", streaming.displayTitle())
+        assertEquals(true, streaming.streaming)
+        assertEquals(true, streaming.virtual)
+        val physical = servers[1]
+        assertEquals("Switzerland", physical.displayTitle())
+        assertEquals(false, physical.streaming)
+        assertEquals(false, physical.virtual)
+        val nameless = servers[2]
+        assertEquals("xx_noname", nameless.displayTitle())
+        assertEquals(false, nameless.virtual)
+    }
+
+    @Test
+    fun `displayTitle falls back to id when the name is blank`() {
+        assertEquals("xx_noname", ServerEntry("xx_noname", "xx-noname.privacy.network").displayTitle())
+        assertEquals(
+            "Nice",
+            ServerEntry("xx_id", "xx.privacy.network", displayName = "Nice").displayTitle(),
+        )
     }
 }

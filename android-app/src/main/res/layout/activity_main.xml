@@ -163,6 +163,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Switch account"
+                app:cornerRadius="12dp"
+                android:layout_marginBottom="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/vpnSettings"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Android VPN settings"
                 app:cornerRadius="12dp" />
         </LinearLayout>
     </LinearLayout>

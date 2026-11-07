@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.widget.CheckBox
 import android.widget.ProgressBar
@@ -84,6 +85,15 @@ class MainActivity : Activity() {
         val disconnectButton: View = findViewById(R.id.disconnect)
         val refreshButton: View = findViewById(R.id.refresh)
         val switchAccountButton: View = findViewById(R.id.switchAccount)
+        val vpnSettingsButton: View = findViewById(R.id.vpnSettings)
+        vpnSettingsButton.setOnClickListener {
+            try {
+                startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+            } catch (error: Exception) {
+                connectStatus.text =
+                    "VPN settings unavailable: ${error.message ?: error.javaClass.simpleName}"
+            }
+        }
         connectStatus = findViewById(R.id.connStatus)
         connectProgress = findViewById(R.id.connectProgress)
         allowLanBox = findViewById(R.id.allowLan)
@@ -238,7 +248,7 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     selectedStatus.text = when {
                         fetched.isEmpty() -> "No servers"
-                        selected != null -> "Selected: ${selected!!.id}"
+                        selected != null -> "Selected: ${ServerLabels.label(selected!!)}"
                         else -> "Tap Choose server to select"
                     }
                 }
@@ -263,8 +273,18 @@ class MainActivity : Activity() {
                 val id = data.getStringExtra(ServerListActivity.EXTRA_SERVER_ID) ?: return
                 val hostname = data.getStringExtra(ServerListActivity.EXTRA_SERVER_HOSTNAME)
                     ?: return
-                selected = ServerEntry(id = id, hostname = hostname)
-                selectedStatus.text = "Selected: $id"
+                val title = data.getStringExtra(ServerListActivity.EXTRA_SERVER_TITLE).orEmpty()
+                val virtual = data.getBooleanExtra(ServerListActivity.EXTRA_SERVER_VIRTUAL, false)
+                val streaming =
+                    data.getBooleanExtra(ServerListActivity.EXTRA_SERVER_STREAMING, false)
+                selected = ServerEntry(
+                    id = id,
+                    hostname = hostname,
+                    displayName = title,
+                    virtual = virtual,
+                    streaming = streaming,
+                )
+                selectedStatus.text = "Selected: ${ServerLabels.label(selected!!)}"
                 updateConnectState()
             }
             REQUEST_VPN_PERMISSION -> {
@@ -321,6 +341,9 @@ class MainActivity : Activity() {
     private fun updateConnectState() {
         val (connected, serverId) = readVpnState()
         val current = selected
+        val connectedTitle = serverId?.let { id ->
+            servers.firstOrNull { it.id == id }?.let { ServerLabels.label(it) }
+        } ?: serverId
         when {
             !connected || serverId.isNullOrEmpty() -> {
                 if (!connecting) {
@@ -330,13 +353,13 @@ class MainActivity : Activity() {
             }
             current?.id == serverId -> {
                 if (!connecting) {
-                    connectStatus.text = "Connected to $serverId"
+                    connectStatus.text = "Connected to $connectedTitle"
                 }
                 connectButton.isEnabled = false
             }
             else -> {
                 if (!connecting) {
-                    connectStatus.text = "Connected to $serverId (another server selected)"
+                    connectStatus.text = "Connected to $connectedTitle (another server selected)"
                 }
                 connectButton.isEnabled = current != null
             }

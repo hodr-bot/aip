@@ -14,9 +14,10 @@ import pia.core.ServerEntry
 
 /**
  * Full-screen server list with a search filter. The [EditText] filters by
- * id or hostname (case-insensitive). Each row shows a flag emoji derived
- * from the [ServerEntry] id prefix plus id and hostname. Tapping a row
- * returns the chosen id/hostname to [MainActivity] via setResult.
+ * display title or id (case-insensitive). Each row shows a flag emoji, the
+ * human-readable title and badge icons for virtual or streaming-optimized
+ * regions; hostnames and IPs never appear. Tapping a row returns the full
+ * entry to [MainActivity] via setResult.
  */
 class ServerListActivity : Activity() {
 
@@ -53,6 +54,9 @@ class ServerListActivity : Activity() {
                 Intent().apply {
                     putExtra(EXTRA_SERVER_ID, entry.id)
                     putExtra(EXTRA_SERVER_HOSTNAME, entry.hostname)
+                    putExtra(EXTRA_SERVER_TITLE, entry.displayTitle())
+                    putExtra(EXTRA_SERVER_VIRTUAL, entry.virtual)
+                    putExtra(EXTRA_SERVER_STREAMING, entry.streaming)
                 },
             )
             finish()
@@ -84,14 +88,14 @@ class ServerListActivity : Activity() {
             servers
         } else {
             servers.filter {
-                it.id.lowercase().contains(needle) || it.hostname.lowercase().contains(needle)
+                it.displayTitle().lowercase().contains(needle) || it.id.lowercase().contains(needle)
             }
         }
         adapter.clear()
         if (filtered.isEmpty() && servers.isNotEmpty()) {
             adapter.add("No servers match \"$query\"")
         } else {
-            adapter.addAll(filtered.map { "${flagFor(it.id)} ${it.id} (${it.hostname})" })
+            adapter.addAll(filtered.map { ServerLabels.label(it) })
         }
         adapter.notifyDataSetChanged()
     }
@@ -99,26 +103,13 @@ class ServerListActivity : Activity() {
     companion object {
         const val EXTRA_SERVER_ID = "serverId"
         const val EXTRA_SERVER_HOSTNAME = "serverHostname"
+        const val EXTRA_SERVER_TITLE = "serverTitle"
+        const val EXTRA_SERVER_VIRTUAL = "serverVirtual"
+        const val EXTRA_SERVER_STREAMING = "serverStreaming"
 
         private val HttpUrlConnectionPortImpl: HttpPort = HttpUrlConnectionPort()
 
-        /**
-         * Flag emoji for a region id: the first two ASCII letters uppercased
-         * map to regional indicator symbols; anything else gets the globe.
-         */
-        fun flagFor(id: String): String {
-            if (id.length < 2) {
-                return "\uD83C\uDF10"
-            }
-            val first = id[0].uppercaseChar()
-            val second = id[1].uppercaseChar()
-            if (first !in 'A'..'Z' || second !in 'A'..'Z') {
-                return "\uD83C\uDF10"
-            }
-            val base = 0x1F1E6
-            val firstPoint = base + (first - 'A')
-            val secondPoint = base + (second - 'A')
-            return String(Character.toChars(firstPoint)) + String(Character.toChars(secondPoint))
-        }
+        /** Flag emoji for a region id; kept here for callers outside [ServerLabels]. */
+        fun flagFor(id: String): String = ServerLabels.flagFor(id)
     }
 }
