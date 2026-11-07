@@ -382,12 +382,12 @@ class MainActivity : Activity() {
                 if (!connecting) {
                     val lastError = readLastError()
                     connectStatus.text = if (lastError.isNullOrEmpty()) {
-                        "Off"
+                        "Disconnected"
                     } else {
-                        "Off — $lastError"
+                        "Disconnected — $lastError"
                     }
                 } else {
-                    connectStatus.text = "…"
+                    connectStatus.text = "Connecting…"
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_off)
                 connectButton.isEnabled = current != null && !connecting
@@ -398,12 +398,12 @@ class MainActivity : Activity() {
                 if (!connecting) {
                     val wobble = readLastError()
                     connectStatus.text = if (wobble.isNullOrEmpty()) {
-                        "On"
+                        "Connected"
                     } else {
-                        "On — $wobble"
+                        "Connected — $wobble"
                     }
                 } else {
-                    connectStatus.text = "…"
+                    connectStatus.text = "Connecting…"
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
                 connectButton.isEnabled = false
@@ -412,9 +412,9 @@ class MainActivity : Activity() {
             }
             else -> {
                 if (!connecting) {
-                    connectStatus.text = "On — $connectedTitle (other server picked)"
+                    connectStatus.text = "Connected ($connectedTitle, other server picked)"
                 } else {
-                    connectStatus.text = "…"
+                    connectStatus.text = "Connecting…"
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
                 connectButton.isEnabled = current != null && !connecting

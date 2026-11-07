@@ -59,6 +59,13 @@ class PiaVpnService : VpnService() {
         const val ALIVE_FRESH_MS = 20_000L
         const val FALLBACK_DNS = "10.0.0.243"
 
+        /**
+         * TUN MTU. The path drops packets over 1000 bytes, so the interface
+         * must stay small: outer packet = MTU + 60 (IP + UDP + WireGuard
+         * overhead). 900 keeps everything on the wire under 1000.
+         */
+        const val TUNNEL_MTU = 900
+
         fun startAction(
             context: Context,
             peerIp: String,
@@ -236,6 +243,7 @@ class PiaVpnService : VpnService() {
         try {
             val ifaceBuilder = Interface.Builder()
                 .setKeyPair(WgKeys.loadOrGenerate(this))
+                .setMtu(TUNNEL_MTU)
                 .parseAddresses("$peerIp/32")
             val dnsCsv = dnsServersCsv.ifBlank { FALLBACK_DNS }
             ifaceBuilder.parseDnsServers(dnsCsv)
