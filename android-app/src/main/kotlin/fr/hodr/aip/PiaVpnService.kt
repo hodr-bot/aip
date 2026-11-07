@@ -36,6 +36,7 @@ class PiaVpnService : VpnService() {
         const val EXTRA_SERVER_PORT = "serverPort"
         const val EXTRA_SERVER_KEY = "serverKey"
         const val EXTRA_DNS_SERVERS = "dnsServersCsv"
+        const val EXTRA_ALLOW_LAN = "allowLan"
 
         private const val CHANNEL_ID = "pia-vpn"
         private const val NOTIFICATION_ID = 1
@@ -48,6 +49,7 @@ class PiaVpnService : VpnService() {
             serverPort: Int,
             serverKey: String,
             dnsServersCsv: String,
+            allowLan: Boolean = false,
         ) {
             val intent = Intent(context, PiaVpnService::class.java).apply {
                 putExtra(EXTRA_PEER_IP, peerIp)
@@ -55,6 +57,7 @@ class PiaVpnService : VpnService() {
                 putExtra(EXTRA_SERVER_PORT, serverPort)
                 putExtra(EXTRA_SERVER_KEY, serverKey)
                 putExtra(EXTRA_DNS_SERVERS, dnsServersCsv)
+                putExtra(EXTRA_ALLOW_LAN, allowLan)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

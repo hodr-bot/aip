@@ -1,15 +1,21 @@
 package fr.hodr.aip
 
+import android.Manifest
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
-import android.widget.Spinner
+import android.widget.CheckBox
+import android.widget.ProgressBar
 import android.widget.TextView
 import com.google.android.material.textfield.TextInputEditText
+import java.util.concurrent.atomic.AtomicInteger
 import pia.core.Clock
 import pia.core.HttpPort
 import pia.core.LeaseResult
@@ -17,7 +23,15 @@ import pia.core.PiaClient
 import pia.core.ServerCatalog
 import pia.core.ServerEntry
 
-/** Login + server list + connect UI. All core calls run off the main thread. */
+/**
+ * Login gating + server pick + connect UI. All core calls run off the main thread.
+ *
+ * The login view is shown only when no password is stored, when the launch
+ * intent carries [EXTRA_AUTH_FAILED], or after tapping "Switch account".
+ * Otherwise the main view is shown directly. VPN state (connected/serverId)
+ * lives in SharedPreferences file "pia-vpn-state" so the connect button and
+ * the status text stay accurate across rotations and restarts.
+ */
 class MainActivity : Activity() {
     private val http: HttpPort = HttpUrlConnectionPort()
     private val clock: Clock = SystemClock()
@@ -31,38 +45,68 @@ class MainActivity : Activity() {
     @Volatile
     private var selected: ServerEntry? = null
 
+    private lateinit var loginContainer: View
+    private lateinit var mainContainer: View
     private lateinit var usernameField: TextInputEditText
     private lateinit var passwordField: TextInputEditText
     private lateinit var loginStatus: TextView
-    private lateinit var serverAdapter: ArrayAdapter<String>
-    private lateinit var serverSpinner: Spinner
     private lateinit var selectedStatus: TextView
+    private lateinit var connectButton: View
     private lateinit var connectStatus: TextView
+    private lateinit var connectProgress: ProgressBar
+    private lateinit var allowLanBox: CheckBox
+
+    @Volatile
+    private var connecting: Boolean = false
 
     @Volatile
     private var pendingLease: LeaseResult? = null
+
+    @Volatile
+    private var pendingServer: ServerEntry? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tokenStore = PrefsTokenStore(this)
         setContentView(R.layout.activity_main)
 
+        loginContainer = findViewById(R.id.loginContainer)
+        mainContainer = findViewById(R.id.mainContainer)
         usernameField = findViewById(R.id.username)
         passwordField = findViewById(R.id.password)
         val loginButton: View = findViewById(R.id.login)
         loginStatus = findViewById(R.id.loginStatus)
 
-        serverAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mutableListOf())
-        serverAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        serverSpinner = findViewById(R.id.servers)
-        serverSpinner.adapter = serverAdapter
+        val pickServerButton: View = findViewById(R.id.pickServer)
         selectedStatus = findViewById(R.id.selectedStatus)
-        val connectButton: View = findViewById(R.id.connect)
+        connectButton = findViewById(R.id.connect)
         val disconnectButton: View = findViewById(R.id.disconnect)
         val refreshButton: View = findViewById(R.id.refresh)
+        val switchAccountButton: View = findViewById(R.id.switchAccount)
         connectStatus = findViewById(R.id.connStatus)
+        connectProgress = findViewById(R.id.connectProgress)
+        allowLanBox = findViewById(R.id.allowLan)
+
+        allowLanBox.isChecked = piaPrefs().getBoolean(KEY_ALLOW_LAN, false)
+        allowLanBox.setOnCheckedChangeListener { _, checked ->
+            piaPrefs().edit().putBoolean(KEY_ALLOW_LAN, checked).apply()
+        }
+
+        ensureAlertChannel()
+        requestNotificationPermission()
 
         refreshButton.setOnClickListener { refreshServers() }
+
+        pickServerButton.setOnClickListener {
+            startActivityForResult(
+                Intent(this, ServerListActivity::class.java),
+                REQUEST_PICK_SERVER,
+            )
+        }
+
+        switchAccountButton.setOnClickListener {
+            showLoginView(true)
+        }
 
         disconnectButton.setOnClickListener {
             val intent = Intent(this, PiaVpnService::class.java).apply {
@@ -70,24 +114,12 @@ class MainActivity : Activity() {
             }
             startService(intent)
             pendingLease = null
+            pendingServer = null
+            setConnecting(false)
+            val (_, lastServerId) = readVpnState()
+            writeVpnState(false, lastServerId)
             connectStatus.text = "Disconnected"
-        }
-
-        serverSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val entry = servers.getOrNull(position)
-                selected = entry
-                selectedStatus.text = if (entry == null) {
-                    "No server selected"
-                } else {
-                    "Selected: ${entry.id}"
-                }
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {
-                selected = null
-                selectedStatus.text = "No server selected"
-            }
+            updateConnectState()
         }
 
         loginButton.setOnClickListener {
@@ -102,11 +134,14 @@ class MainActivity : Activity() {
                     val remainingHours = token.remainingSec(clock.nowEpochSec()) / 3600
                     runOnUiThread {
                         loginStatus.text = "Token valid, remaining ~${remainingHours}h"
+                        showLoginView(false)
                     }
                 } catch (error: Exception) {
+                    val message = error.message ?: error.javaClass.simpleName
                     runOnUiThread {
-                        loginStatus.text = "Login failed: ${error.message ?: error.javaClass.simpleName}"
+                        loginStatus.text = "Login failed: $message"
                     }
+                    notifyAlert("Login failed", message)
                 }
             }.start()
         }
@@ -117,6 +152,7 @@ class MainActivity : Activity() {
                 connectStatus.text = "Select a server first"
                 return@setOnClickListener
             }
+            setConnecting(true)
             connectStatus.text = "Connecting..."
             Thread {
                 try {
@@ -129,28 +165,47 @@ class MainActivity : Activity() {
                     val publicKey = keyPair.publicKey.toBase64()
                     val result = client.addKey(entry.hostname, token, publicKey)
                     pendingLease = result
+                    pendingServer = entry
                     tokenStore.saveLastHost(entry.hostname)
                     runOnUiThread {
-                        connectStatus.text =
-                            "Peer IP: ${result.lease.peerIp} Endpoint: ${result.lease.endpoint}"
                         val prepareIntent = VpnService.prepare(this@MainActivity)
                         if (prepareIntent != null) {
                             startActivityForResult(prepareIntent, REQUEST_VPN_PERMISSION)
                         } else {
-                            launchVpn(result)
+                            launchVpn(result, entry)
                         }
                     }
                 } catch (error: Exception) {
+                    val message = error.message ?: error.javaClass.simpleName
                     runOnUiThread {
-                        connectStatus.text =
-                            "Connect failed: ${error.message ?: error.javaClass.simpleName}"
+                        setConnecting(false)
+                        pendingLease = null
+                        pendingServer = null
+                        connectStatus.text = "Connect failed: $message"
                     }
+                    notifyAlert("Connect failed", message)
                 }
             }.start()
         }
 
+        val authFailed = intent?.getBooleanExtra(EXTRA_AUTH_FAILED, false) ?: false
+        showLoginView(tokenStore.loadPassword() == null || authFailed)
         refreshServers()
         restoreSession()
+        updateConnectState()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateConnectState()
+    }
+
+    private fun showLoginView(show: Boolean) {
+        loginContainer.visibility = if (show) View.VISIBLE else View.GONE
+        mainContainer.visibility = if (show) View.GONE else View.VISIBLE
+        if (!show) {
+            updateConnectState()
+        }
     }
 
     private fun restoreSession() {
@@ -167,27 +222,27 @@ class MainActivity : Activity() {
 
     private fun refreshServers() {
         runOnUiThread {
-            selectedStatus.text = "Loading servers..."
+            if (selected == null) {
+                selectedStatus.text = "Loading servers..."
+            }
         }
         Thread {
             try {
                 val fetched = catalog.fetchServers()
                 servers = fetched
-                val labels = fetched.map { "${it.id} (${it.hostname})" }
                 runOnUiThread {
-                    serverAdapter.clear()
-                    serverAdapter.addAll(labels)
-                    serverAdapter.notifyDataSetChanged()
-                    selectedStatus.text = if (fetched.isEmpty()) {
-                        "No servers"
-                    } else {
-                        "Tap a server to select"
+                    selectedStatus.text = when {
+                        fetched.isEmpty() -> "No servers"
+                        selected != null -> "Selected: ${selected!!.id}"
+                        else -> "Tap Choose server to select"
                     }
                 }
             } catch (error: Exception) {
                 runOnUiThread {
-                    selectedStatus.text =
-                        "Server list failed: ${error.message ?: error.javaClass.simpleName}"
+                    if (selected == null) {
+                        selectedStatus.text =
+                            "Server list failed: ${error.message ?: error.javaClass.simpleName}"
+                    }
                 }
             }
         }.start()
@@ -195,26 +250,44 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_VPN_PERMISSION) {
-            return
+        when (requestCode) {
+            REQUEST_PICK_SERVER -> {
+                if (resultCode != RESULT_OK || data == null) {
+                    return
+                }
+                val id = data.getStringExtra(ServerListActivity.EXTRA_SERVER_ID) ?: return
+                val hostname = data.getStringExtra(ServerListActivity.EXTRA_SERVER_HOSTNAME)
+                    ?: return
+                selected = ServerEntry(id = id, hostname = hostname)
+                selectedStatus.text = "Selected: $id"
+                updateConnectState()
+            }
+            REQUEST_VPN_PERMISSION -> {
+                if (resultCode != RESULT_OK) {
+                    setConnecting(false)
+                    connectStatus.text = "VPN permission denied"
+                    pendingLease = null
+                    pendingServer = null
+                    return
+                }
+                val lease = pendingLease
+                val server = pendingServer
+                if (lease == null || server == null) {
+                    setConnecting(false)
+                    connectStatus.text = "No pending lease"
+                    return
+                }
+                launchVpn(lease, server)
+            }
         }
-        if (resultCode != RESULT_OK) {
-            connectStatus.text = "VPN permission denied"
-            pendingLease = null
-            return
-        }
-        val lease = pendingLease
-        if (lease == null) {
-            connectStatus.text = "No pending lease"
-            return
-        }
-        launchVpn(lease)
     }
 
-    private fun launchVpn(result: LeaseResult) {
+    private fun launchVpn(result: LeaseResult, server: ServerEntry) {
         val split = splitEndpoint(result.lease.endpoint)
         if (split == null) {
+            setConnecting(false)
             connectStatus.text = "Connect failed: bad endpoint"
+            notifyAlert("Connect failed", "bad endpoint for ${server.id}")
             return
         }
         val (host, port) = split
@@ -225,10 +298,99 @@ class MainActivity : Activity() {
             serverPort = port,
             serverKey = result.lease.serverPublicKey,
             dnsServersCsv = result.dnsServers.joinToString(","),
+            allowLan = allowLanBox.isChecked,
         )
         pendingLease = null
-        connectStatus.text =
-            "Peer IP: ${result.lease.peerIp} Endpoint: ${result.lease.endpoint}"
+        pendingServer = null
+        setConnecting(false)
+        writeVpnState(true, server.id)
+        updateConnectState()
+    }
+
+    private fun setConnecting(active: Boolean) {
+        connecting = active
+        connectProgress.visibility = if (active) View.VISIBLE else View.GONE
+    }
+
+    /** Connect button + status text follow the persisted vpn state. */
+    private fun updateConnectState() {
+        val (connected, serverId) = readVpnState()
+        val current = selected
+        when {
+            !connected || serverId.isNullOrEmpty() -> {
+                if (!connecting) {
+                    connectStatus.text = "Disconnected"
+                }
+                connectButton.isEnabled = current != null
+            }
+            current?.id == serverId -> {
+                if (!connecting) {
+                    connectStatus.text = "Connected to $serverId"
+                }
+                connectButton.isEnabled = false
+            }
+            else -> {
+                if (!connecting) {
+                    connectStatus.text = "Connected to $serverId (another server selected)"
+                }
+                connectButton.isEnabled = current != null
+            }
+        }
+    }
+
+    private fun piaPrefs() = getSharedPreferences(PREFS_UI, MODE_PRIVATE)
+
+    private fun readVpnState(): Pair<Boolean, String?> {
+        val prefs = getSharedPreferences(PREFS_STATE, MODE_PRIVATE)
+        return prefs.getBoolean(KEY_CONNECTED, false) to prefs.getString(KEY_SERVER_ID, null)
+    }
+
+    private fun writeVpnState(connected: Boolean, serverId: String?) {
+        getSharedPreferences(PREFS_STATE, MODE_PRIVATE).edit()
+            .putBoolean(KEY_CONNECTED, connected)
+            .putString(KEY_SERVER_ID, serverId)
+            .apply()
+    }
+
+    private fun ensureAlertChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(ALERT_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    ALERT_CHANNEL_ID,
+                    "PIA alerts",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ),
+            )
+        }
+    }
+
+    /** Alert notifications are posted only on problems (login/connect failures). */
+    private fun notifyAlert(title: String, message: String) {
+        ensureAlertChannel()
+        val notification: Notification = Notification.Builder(this, ALERT_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .build()
+        getSystemService(NotificationManager::class.java)
+            ?.notify(alertId.incrementAndGet(), notification)
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT > 32) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissions(
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_NOTIFICATIONS,
+                )
+            }
+        }
     }
 
     private fun splitEndpoint(endpoint: String): Pair<String, Int>? {
@@ -245,6 +407,22 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        /** Launch MainActivity with this extra true to force the login view. */
+        const val EXTRA_AUTH_FAILED = "authFailed"
+
         private const val REQUEST_VPN_PERMISSION = 100
+        private const val REQUEST_PICK_SERVER = 101
+        private const val REQUEST_NOTIFICATIONS = 102
+
+        private const val PREFS_STATE = "pia-vpn-state"
+        private const val KEY_CONNECTED = "connected"
+        private const val KEY_SERVER_ID = "serverId"
+
+        private const val PREFS_UI = "pia-prefs"
+        private const val KEY_ALLOW_LAN = "allowLan"
+
+        private const val ALERT_CHANNEL_ID = "aip-alerts"
+
+        private val alertId = AtomicInteger(100)
     }
 }
