@@ -1,9 +1,10 @@
 package pia.app
 
 import android.app.Activity
+import android.content.Intent
+import android.net.VpnService
 import android.os.Bundle
 import android.text.InputType
-import android.util.Base64
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -16,9 +17,9 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.security.SecureRandom
 import pia.core.AuthToken
 import pia.core.Clock
+import pia.core.LeaseResult
 import pia.core.HttpPort
 import pia.core.PiaClient
 import pia.core.ServerCatalog
@@ -80,10 +81,11 @@ private class SystemClock : Clock {
 }
 
 /**
- * Step 2 UI only, no tunnel yet.
  * Vertical LinearLayout built in code: username/password fields, Login button
  * (CORE [PiaClient.login]), server [ListView] (CORE [ServerCatalog.fetchServers]),
- * Connect button (CORE [PiaClient.addKey]). All core calls off the main thread.
+ * Connect button (CORE [PiaClient.addKey] then [PiaVpnService] tunnel) and
+ * Disconnect button ([PiaVpnService.ACTION_DISCONNECT]).
+ * All core and backend calls run off the main thread. No secrets logged.
  */
 class MainActivity : Activity() {
     private val http: HttpPort = HttpUrlConnectionPort()
@@ -107,6 +109,9 @@ class MainActivity : Activity() {
     private lateinit var serverList: ListView
     private lateinit var selectedStatus: TextView
     private lateinit var connectStatus: TextView
+
+    @Volatile
+    private var pendingLease: LeaseResult? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -141,7 +146,8 @@ class MainActivity : Activity() {
         }
         selectedStatus = TextView(this).apply { text = "No server selected" }
         val connectButton = Button(this).apply { text = "Connect" }
-        connectStatus = TextView(this).apply { text = "Not connected (UI only, no tunnel)" }
+        val disconnectButton = Button(this).apply { text = "Disconnect" }
+        connectStatus = TextView(this).apply { text = "Not connected" }
 
         layout.addView(usernameField)
         layout.addView(passwordField)
@@ -150,8 +156,18 @@ class MainActivity : Activity() {
         layout.addView(serverList)
         layout.addView(selectedStatus)
         layout.addView(connectButton)
+        layout.addView(disconnectButton)
         layout.addView(connectStatus)
         setContentView(layout)
+
+        disconnectButton.setOnClickListener {
+            val intent = Intent(this, PiaVpnService::class.java).apply {
+                action = PiaVpnService.ACTION_DISCONNECT
+            }
+            startService(intent)
+            pendingLease = null
+            connectStatus.text = "Disconnected"
+        }
 
         serverList.setOnItemClickListener { _, _, position, _ ->
             val entry = servers.getOrNull(position)
@@ -199,11 +215,19 @@ class MainActivity : Activity() {
             connectStatus.text = "Connecting..."
             Thread {
                 try {
-                    val publicKey = generateEphemeralPublicKey()
+                    val keyPair = WgKeys.loadOrGenerate(this@MainActivity)
+                    val publicKey = keyPair.publicKey.toBase64()
                     val result = client.addKey(entry.hostname, token, publicKey)
+                    pendingLease = result
                     runOnUiThread {
                         connectStatus.text =
                             "Peer IP: ${result.lease.peerIp} Endpoint: ${result.lease.endpoint}"
+                        val prepareIntent = VpnService.prepare(this@MainActivity)
+                        if (prepareIntent != null) {
+                            startActivityForResult(prepareIntent, REQUEST_VPN_PERMISSION)
+                        } else {
+                            launchVpn(result)
+                        }
                     }
                 } catch (error: Exception) {
                     runOnUiThread {
@@ -245,10 +269,58 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    /** Ephemeral placeholder public key for the UI-only addKey call; real keypair lands with the tunnel step. */
-    private fun generateEphemeralPublicKey(): String {
-        val bytes = ByteArray(32)
-        SecureRandom().nextBytes(bytes)
-        return Base64.encodeToString(bytes, Base64.NO_WRAP)
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_VPN_PERMISSION) {
+            return
+        }
+        if (resultCode != RESULT_OK) {
+            connectStatus.text = "VPN permission denied"
+            pendingLease = null
+            return
+        }
+        val lease = pendingLease
+        if (lease == null) {
+            connectStatus.text = "No pending lease"
+            return
+        }
+        launchVpn(lease)
+    }
+
+    private fun launchVpn(result: LeaseResult) {
+        val split = splitEndpoint(result.lease.endpoint)
+        if (split == null) {
+            connectStatus.text = "Connect failed: bad endpoint"
+            return
+        }
+        val (host, port) = split
+        PiaVpnService.startAction(
+            this,
+            peerIp = result.lease.peerIp,
+            endpoint = host,
+            serverPort = port,
+            serverKey = result.lease.serverPublicKey,
+            dnsServersCsv = result.dnsServers.joinToString(","),
+        )
+        pendingLease = null
+        connectStatus.text =
+            "Peer IP: ${result.lease.peerIp} Endpoint: ${result.lease.endpoint}"
+    }
+
+    private fun splitEndpoint(endpoint: String): Pair<String, Int>? {
+        val slash = endpoint.lastIndexOf(':')
+        if (slash <= 0 || slash == endpoint.length - 1) {
+            return null
+        }
+        val host = endpoint.substring(0, slash)
+        val port = endpoint.substring(slash + 1).toIntOrNull() ?: return null
+        if (port <= 0 || port > 65535) {
+            return null
+        }
+        return host to port
+    }
+
+    companion object {
+        private const val REQUEST_VPN_PERMISSION = 100
     }
 }

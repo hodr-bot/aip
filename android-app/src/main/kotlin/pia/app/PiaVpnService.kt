@@ -1,0 +1,171 @@
+package pia.app
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.net.VpnService
+import com.wireguard.android.backend.GoBackend
+import com.wireguard.android.backend.Tunnel
+import com.wireguard.config.Config
+import com.wireguard.config.InetEndpoint
+import com.wireguard.config.InetNetwork
+import com.wireguard.config.Interface
+import com.wireguard.config.Peer
+import com.wireguard.crypto.Key
+
+/**
+ * Foreground [VpnService] hosting the WireGuard tunnel through [GoBackend].
+ *
+ * The connect flow hands over a CORE-negotiated lease via [startAction];
+ * the service builds a [Config] from the persistent [WgKeys] identity and
+ * brings a [PiaTunnel] named "pia" up. All backend work runs off the main
+ * thread. No secrets are logged.
+ */
+class PiaVpnService : VpnService() {
+
+    companion object {
+        const val ACTION_DISCONNECT = "pia.app.action.DISCONNECT"
+
+        const val EXTRA_PEER_IP = "peerIp"
+        const val EXTRA_ENDPOINT = "endpoint"
+        const val EXTRA_SERVER_PORT = "serverPort"
+        const val EXTRA_SERVER_KEY = "serverKey"
+        const val EXTRA_DNS_SERVERS = "dnsServersCsv"
+
+        private const val CHANNEL_ID = "pia-vpn"
+        private const val NOTIFICATION_ID = 1
+        private const val TUNNEL_NAME = "pia"
+
+        fun startAction(
+            context: Context,
+            peerIp: String,
+            endpoint: String,
+            serverPort: Int,
+            serverKey: String,
+            dnsServersCsv: String,
+        ) {
+            val intent = Intent(context, PiaVpnService::class.java).apply {
+                putExtra(EXTRA_PEER_IP, peerIp)
+                putExtra(EXTRA_ENDPOINT, endpoint)
+                putExtra(EXTRA_SERVER_PORT, serverPort)
+                putExtra(EXTRA_SERVER_KEY, serverKey)
+                putExtra(EXTRA_DNS_SERVERS, dnsServersCsv)
+            }
+            context.startService(intent)
+        }
+    }
+
+    @Volatile
+    private var backend: GoBackend? = null
+
+    @Volatile
+    private var tunnel: PiaTunnel? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_DISCONNECT) {
+            bringDown()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val peerIp = intent?.getStringExtra(EXTRA_PEER_IP)
+        val endpoint = intent?.getStringExtra(EXTRA_ENDPOINT)
+        val serverPort = intent?.getIntExtra(EXTRA_SERVER_PORT, -1) ?: -1
+        val serverKey = intent?.getStringExtra(EXTRA_SERVER_KEY)
+        val dnsServersCsv = intent?.getStringExtra(EXTRA_DNS_SERVERS).orEmpty()
+        if (peerIp.isNullOrEmpty() || endpoint.isNullOrEmpty() ||
+            serverKey.isNullOrEmpty() || serverPort <= 0 || serverPort > 65535
+        ) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        goForeground()
+        Thread {
+            bringUp(peerIp, endpoint, serverPort, serverKey, dnsServersCsv)
+        }.start()
+        return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        bringDown()
+        super.onDestroy()
+    }
+
+    private fun goForeground() {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (manager?.getNotificationChannel(CHANNEL_ID) == null) {
+            manager?.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "PIA VPN",
+                    NotificationManager.IMPORTANCE_LOW,
+                ),
+            )
+        }
+        val notification: Notification = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle("PIA VPN")
+            .setContentText("Tunnel active")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .build()
+        startForeground(NOTIFICATION_ID, notification)
+    }
+
+    private fun bringUp(
+        peerIp: String,
+        endpoint: String,
+        serverPort: Int,
+        serverKey: String,
+        dnsServersCsv: String,
+    ) {
+        val activeTunnel = PiaTunnel(TUNNEL_NAME)
+        val activeBackend = GoBackend(this)
+        tunnel = activeTunnel
+        backend = activeBackend
+        try {
+            val ifaceBuilder = Interface.Builder()
+                .setKeyPair(WgKeys.loadOrGenerate(this))
+                .parseAddresses("$peerIp/32")
+            if (dnsServersCsv.isNotBlank()) {
+                ifaceBuilder.parseDnsServers(dnsServersCsv)
+            }
+            val config = Config.Builder()
+                .setInterface(ifaceBuilder.build())
+                .addPeer(
+                    Peer.Builder()
+                        .setPublicKey(Key.fromBase64(serverKey))
+                        .setEndpoint(InetEndpoint.parse("$endpoint:$serverPort"))
+                        .addAllowedIp(InetNetwork.parse("0.0.0.0/0"))
+                        .addAllowedIp(InetNetwork.parse("::/0"))
+                        .build(),
+                )
+                .build()
+            activeBackend.setState(activeTunnel, Tunnel.State.UP, config)
+        } catch (error: Exception) {
+            try {
+                activeBackend.setState(activeTunnel, Tunnel.State.DOWN, null)
+            } catch (ignored: Exception) {
+                // Best-effort teardown; nothing secret to report.
+            }
+            backend = null
+            tunnel = null
+            stopSelf()
+        }
+    }
+
+    private fun bringDown() {
+        val activeBackend = backend
+        val activeTunnel = tunnel
+        backend = null
+        tunnel = null
+        if (activeBackend != null && activeTunnel != null) {
+            Thread {
+                try {
+                    activeBackend.setState(activeTunnel, Tunnel.State.DOWN, null)
+                } catch (ignored: Exception) {
+                    // Best-effort teardown; nothing secret to report.
+                }
+            }.start()
+        }
+    }
+}
