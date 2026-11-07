@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
+import android.os.SystemClock
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
@@ -261,13 +262,14 @@ class PiaVpnService : VpnService() {
             // The tunnel is up, but that proves nothing about traffic: some
             // networks blackhole UDP or DNS. Only claim "connected" once real
             // traffic flows through the tunnel; otherwise tear down loudly.
-            if (verifyTraffic()) {
+            val (flows, trace) = verifyTraffic()
+            if (flows) {
                 trafficStalled = false
                 writeState(true, serverId, null)
                 clearAlert()
                 startMonitor(activeBackend, activeTunnel)
             } else {
-                failTraffic(activeBackend, activeTunnel, serverId, "no traffic flows through the tunnel")
+                failTraffic(activeBackend, activeTunnel, serverId, "no traffic flows ($trace)")
             }
         } catch (error: Exception) {
             try {
@@ -285,18 +287,45 @@ class PiaVpnService : VpnService() {
     }
 
     /**
-     * Prove real traffic flows through the tunnel: GET the PIA homepage and
-     * read the body (DNS + TCP + TLS + multi-kilobyte packets through the
-     * TUN interface). A bare HEAD only proves small packets; full-page GETs
-     * prove real browsing works. Any HTTP response with a body means traffic
-     * flows; transport exceptions mean "tunnel up, internet dead".
+     * Prove real traffic flows through the tunnel, with a stage trace so a
+     * failure says WHERE it died (DNS, TCP, TLS/HTTP) instead of a bare
+     * "no traffic". Returns success plus the trace; the caller stores the
+     * trace as the error detail. Stages: explicit DNS, raw TCP to the first
+     * IPv4:443 (no TLS/HTTP stack involved), then the full HTTPS GET.
      */
-    private fun verifyTraffic(): Boolean {
-        // Single attempt with honest timeouts. A doomed quick-first attempt
-        // only adds its own timeout on slow networks before the real one.
+    private fun verifyTraffic(): Pair<Boolean, String> {
+        val trace = StringBuilder()
+        val host = "www.privateinternetaccess.com"
+        // Stage 1: DNS through the tunnel.
+        val dnsStart = SystemClock.elapsedRealtime()
+        val addrs = try {
+            java.net.InetAddress.getAllByName(host)
+        } catch (error: Exception) {
+            trace.append("dns FAIL(${error.javaClass.simpleName})")
+            return false to trace.toString()
+        }
+        val v4count = addrs.count { it is java.net.Inet4Address }
+        trace.append("dns ${v4count}v4+${addrs.size - v4count}v6 ${SystemClock.elapsedRealtime() - dnsStart}ms; ")
+        // Stage 2: raw TCP to the first IPv4:443.
+        val first4 = addrs.firstOrNull { it is java.net.Inet4Address }
+        if (first4 == null) {
+            trace.append("tcp4 no-v4-addr; ")
+        } else {
+            try {
+                val tcpStart = SystemClock.elapsedRealtime()
+                java.net.Socket().use { socket ->
+                    socket.connect(java.net.InetSocketAddress(first4, 443), 5_000)
+                }
+                trace.append("tcp4 ok ${SystemClock.elapsedRealtime() - tcpStart}ms; ")
+            } catch (error: Exception) {
+                trace.append("tcp4 FAIL(${error.javaClass.simpleName})")
+                return false to trace.toString()
+            }
+        }
+        // Stage 3: full HTTPS GET (TLS + HTTP + body through the TUN).
         var connection: HttpsURLConnection? = null
         try {
-            val url = java.net.URL("https://www.privateinternetaccess.com/")
+            val url = java.net.URL("https://$host/")
             connection = url.openConnection() as HttpsURLConnection
             connection.requestMethod = "GET"
             connection.connectTimeout = 12_000
@@ -316,14 +345,16 @@ class PiaVpnService : VpnService() {
                 total += read
             }
             if (total >= 1024) {
-                return true
+                trace.append("https ok ${total}b")
+                return true to trace.toString()
             }
-        } catch (ignored: Exception) {
-            // No traffic through the tunnel.
+            trace.append("https empty-body(${total}b)")
+        } catch (error: Exception) {
+            trace.append("https FAIL(${error.javaClass.simpleName})")
         } finally {
             connection?.disconnect()
         }
-        return false
+        return false to trace.toString()
     }
 
     private fun writeState(connected: Boolean, serverId: String?, lastError: String?) {
@@ -365,7 +396,7 @@ class PiaVpnService : VpnService() {
                     val now = System.currentTimeMillis()
                     if (now - lastVerify >= 60_000) {
                         lastVerify = now
-                        if (!verifyTraffic()) {
+                        if (!verifyTraffic().first) {
                             if (!trafficStalled) {
                                 trafficStalled = true
                                 writeState(

@@ -133,6 +133,15 @@
                     android:layout_marginTop="10dp"
                     android:indeterminate="true"
                     android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/errorDetail"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:textSize="13sp"
+                    android:textColor="@color/pia_error" />
             </LinearLayout>
 
             <!-- Server card: current choice + change action. -->

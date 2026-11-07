@@ -55,6 +55,7 @@ class MainActivity : Activity() {
     private lateinit var selectedStatus: TextView
     private lateinit var connectButton: Button
     private lateinit var connectStatus: TextView
+    private lateinit var errorDetail: TextView
     private lateinit var connectProgress: ProgressBar
     private lateinit var allowLanBox: CheckBox
 
@@ -96,6 +97,7 @@ class MainActivity : Activity() {
             }
         }
         connectStatus = findViewById(R.id.connStatus)
+        errorDetail = findViewById(R.id.errorDetail)
         connectProgress = findViewById(R.id.connectProgress)
         allowLanBox = findViewById(R.id.allowLan)
         findViewById<TextView>(R.id.appVersion).text =
@@ -386,14 +388,11 @@ class MainActivity : Activity() {
         when {
             !connected || serverId.isNullOrEmpty() -> {
                 if (!connecting) {
-                    val lastError = readLastError()
-                    connectStatus.text = if (lastError.isNullOrEmpty()) {
-                        "Disconnected"
-                    } else {
-                        "Disconnected — $lastError"
-                    }
+                    connectStatus.text = "Disconnected"
+                    errorDetail.text = readLastError().orEmpty()
                 } else {
                     connectStatus.text = "Connecting…"
+                    errorDetail.text = ""
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_off)
                 connectButton.isEnabled = current != null && !connecting
@@ -402,14 +401,11 @@ class MainActivity : Activity() {
             }
             current?.id == serverId -> {
                 if (!connecting) {
-                    val wobble = readLastError()
-                    connectStatus.text = if (wobble.isNullOrEmpty()) {
-                        "Connected"
-                    } else {
-                        "Connected — $wobble"
-                    }
+                    connectStatus.text = "Connected"
+                    errorDetail.text = readLastError().orEmpty()
                 } else {
                     connectStatus.text = "Connecting…"
+                    errorDetail.text = ""
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
                 connectButton.isEnabled = false
@@ -418,9 +414,11 @@ class MainActivity : Activity() {
             }
             else -> {
                 if (!connecting) {
-                    connectStatus.text = "Connected ($connectedTitle, other server picked)"
+                    connectStatus.text = "Connected"
+                    errorDetail.text = "$connectedTitle (other server picked)"
                 } else {
                     connectStatus.text = "Connecting…"
+                    errorDetail.text = ""
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
                 connectButton.isEnabled = current != null && !connecting
