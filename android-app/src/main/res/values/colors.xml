@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="pia_background">#101410</color>
+    <color name="pia_surface">#1A211A</color>
+    <color name="pia_accent">#7ED321</color>
+    <color name="pia_text">#E8F0E4</color>
+    <color name="pia_muted">#9DB09A</color>
+    <color name="pia_error">#E57373</color>
+</resources>

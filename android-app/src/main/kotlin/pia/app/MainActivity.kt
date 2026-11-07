@@ -4,14 +4,12 @@ import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
-import android.text.InputType
-import android.view.ViewGroup
+import android.view.View
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ListView
+import android.widget.Spinner
 import android.widget.TextView
+import com.google.android.material.textfield.TextInputEditText
 import pia.core.Clock
 import pia.core.HttpPort
 import pia.core.LeaseResult
@@ -33,11 +31,11 @@ class MainActivity : Activity() {
     @Volatile
     private var selected: ServerEntry? = null
 
-    private lateinit var usernameField: EditText
-    private lateinit var passwordField: EditText
+    private lateinit var usernameField: TextInputEditText
+    private lateinit var passwordField: TextInputEditText
     private lateinit var loginStatus: TextView
     private lateinit var serverAdapter: ArrayAdapter<String>
-    private lateinit var serverList: ListView
+    private lateinit var serverSpinner: Spinner
     private lateinit var selectedStatus: TextView
     private lateinit var connectStatus: TextView
 
@@ -47,50 +45,24 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tokenStore = PrefsTokenStore(this)
+        setContentView(R.layout.activity_main)
 
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            )
-        }
+        usernameField = findViewById(R.id.username)
+        passwordField = findViewById(R.id.password)
+        val loginButton: View = findViewById(R.id.login)
+        loginStatus = findViewById(R.id.loginStatus)
 
-        usernameField = EditText(this).apply {
-            hint = "Username"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-        }
-        passwordField = EditText(this).apply {
-            hint = "Password"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        val loginButton = Button(this).apply { text = "Login" }
-        loginStatus = TextView(this).apply { text = "Not logged in" }
+        serverAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mutableListOf())
+        serverAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        serverSpinner = findViewById(R.id.servers)
+        serverSpinner.adapter = serverAdapter
+        selectedStatus = findViewById(R.id.selectedStatus)
+        val connectButton: View = findViewById(R.id.connect)
+        val disconnectButton: View = findViewById(R.id.disconnect)
+        val refreshButton: View = findViewById(R.id.refresh)
+        connectStatus = findViewById(R.id.connStatus)
 
-        serverAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
-        serverList = ListView(this).apply {
-            adapter = serverAdapter
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
-            )
-        }
-        selectedStatus = TextView(this).apply { text = "No server selected" }
-        val connectButton = Button(this).apply { text = "Connect" }
-        val disconnectButton = Button(this).apply { text = "Disconnect" }
-        connectStatus = TextView(this).apply { text = "Not connected" }
-
-        layout.addView(usernameField)
-        layout.addView(passwordField)
-        layout.addView(loginButton)
-        layout.addView(loginStatus)
-        layout.addView(serverList)
-        layout.addView(selectedStatus)
-        layout.addView(connectButton)
-        layout.addView(disconnectButton)
-        layout.addView(connectStatus)
-        setContentView(layout)
+        refreshButton.setOnClickListener { refreshServers() }
 
         disconnectButton.setOnClickListener {
             val intent = Intent(this, PiaVpnService::class.java).apply {
@@ -101,15 +73,20 @@ class MainActivity : Activity() {
             connectStatus.text = "Disconnected"
         }
 
-        serverList.setOnItemClickListener { _, _, position, _ ->
-            val entry = servers.getOrNull(position)
-            selected = entry
-            runOnUiThread {
+        serverSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val entry = servers.getOrNull(position)
+                selected = entry
                 selectedStatus.text = if (entry == null) {
                     "No server selected"
                 } else {
                     "Selected: ${entry.id}"
                 }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {
+                selected = null
+                selectedStatus.text = "No server selected"
             }
         }
 

@@ -43,6 +43,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
     implementation("com.wireguard.android:tunnel:1.0.20230706")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("com.google.android.material:material:1.12.0")
 }
 
 tasks.named("preBuild") {

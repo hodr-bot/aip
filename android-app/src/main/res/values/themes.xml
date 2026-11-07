@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Pia" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/pia_accent</item>
+        <item name="colorOnPrimary">@color/pia_background</item>
+        <item name="android:windowBackground">@color/pia_background</item>
+    </style>
+</resources>
