@@ -42,6 +42,7 @@ class PiaVpnService : VpnService() {
         const val EXTRA_DNS_SERVERS = "dnsServersCsv"
         const val EXTRA_ALLOW_LAN = "allowLan"
         const val EXTRA_SERVER_ID = "serverId"
+        const val EXTRA_PROBE_IPS = "probeIps"
 
         private const val CHANNEL_ID = "aip-vpn"
         private const val LEGACY_CHANNEL_ID = "pia-vpn"
@@ -76,6 +77,7 @@ class PiaVpnService : VpnService() {
             dnsServersCsv: String,
             allowLan: Boolean = false,
             serverId: String? = null,
+            probeIpsCsv: String = "",
         ) {
             val intent = Intent(context, PiaVpnService::class.java).apply {
                 putExtra(EXTRA_PEER_IP, peerIp)
@@ -85,6 +87,7 @@ class PiaVpnService : VpnService() {
                 putExtra(EXTRA_DNS_SERVERS, dnsServersCsv)
                 putExtra(EXTRA_ALLOW_LAN, allowLan)
                 putExtra(EXTRA_SERVER_ID, serverId)
+                putExtra(EXTRA_PROBE_IPS, probeIpsCsv)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -109,6 +112,9 @@ class PiaVpnService : VpnService() {
     @Volatile
     private var trafficStalled = false
 
+    @Volatile
+    private var probeIpsCsv: String = ""
+
     override fun onCreate() {
         super.onCreate()
         // A fresh process means no live tunnel: a previous process may have
@@ -132,6 +138,7 @@ class PiaVpnService : VpnService() {
         val dnsServersCsv = intent?.getStringExtra(EXTRA_DNS_SERVERS).orEmpty()
         val allowLan = intent?.getBooleanExtra(EXTRA_ALLOW_LAN, false) ?: false
         val serverId = intent?.getStringExtra(EXTRA_SERVER_ID)
+        val probeIps = intent?.getStringExtra(EXTRA_PROBE_IPS).orEmpty()
         if (peerIp.isNullOrEmpty() || endpoint.isNullOrEmpty() ||
             serverKey.isNullOrEmpty() || serverPort <= 0 || serverPort > 65535
         ) {
@@ -143,7 +150,7 @@ class PiaVpnService : VpnService() {
         }
         goForeground()
         Thread {
-            bringUp(peerIp, endpoint, serverPort, serverKey, dnsServersCsv, allowLan, serverId)
+            bringUp(peerIp, endpoint, serverPort, serverKey, dnsServersCsv, allowLan, serverId, probeIps)
         }.start()
         return START_NOT_STICKY
     }
@@ -235,8 +242,10 @@ class PiaVpnService : VpnService() {
         dnsServersCsv: String,
         allowLan: Boolean,
         serverId: String?,
+        probeIps: String = "",
     ) {
         activeServerId = serverId
+        probeIpsCsv = probeIps
         val activeTunnel = PiaTunnel(TUNNEL_NAME)
         val activeBackend = GoBackend(this)
         tunnel = activeTunnel
@@ -247,7 +256,13 @@ class PiaVpnService : VpnService() {
                 .setMtu(TUNNEL_MTU)
                 .parseAddresses("$peerIp/32")
             val dnsCsv = dnsServersCsv.ifBlank { FALLBACK_DNS }
-            ifaceBuilder.parseDnsServers(dnsCsv)
+            // The lease DNS (usually 10.0.0.243) has proven flaky: one dead
+            // server means every name fails even with a live tunnel. Always
+            // append public resolvers as fallback; they route through the
+            // tunnel like everything else (AllowedIPs 0/0).
+            val dnsAll = (dnsCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() } +
+                listOf("1.1.1.1", "8.8.8.8")).distinct().joinToString(",")
+            ifaceBuilder.parseDnsServers(dnsAll)
             val peerBuilder = Peer.Builder()
                 .setPublicKey(Key.fromBase64(serverKey))
                 .setEndpoint(InetEndpoint.parse("$endpoint:$serverPort"))
@@ -313,77 +328,107 @@ class PiaVpnService : VpnService() {
     }
 
     /**
-     * Prove real traffic flows through the tunnel, with a stage trace so a
-     * failure says WHERE it died (DNS, TCP, TLS/HTTP) instead of a bare
-     * "no traffic". Returns success plus the trace; the caller stores the
-     * trace as the error detail. Stages: explicit DNS, raw TCP to the first
-     * IPv4:443 (no TLS/HTTP stack involved), then the full HTTPS GET.
+     * Prove real traffic flows through the tunnel. The probe IPs are resolved
+     * on the plain network BEFORE the tunnel comes up (passed via
+     * EXTRA_PROBE_IPS), so a dead tunnel-DNS can never fake a dead tunnel:
+     * TCP+TLS to a cached IP either flows or it does not. Tunnel DNS is then
+     * tested separately as a warning, not a verdict.
      */
     private fun verifyTraffic(): Pair<Boolean, String> {
         val trace = StringBuilder()
-        // Probe target: a high-traffic public homepage that welcomes VPN
-        // exits (the PIA homepage itself refuses connections arriving from
-        // its own exits, which looks exactly like a dead tunnel).
         val host = "www.google.com"
-        // Stage 1: DNS through the tunnel.
+        val cached = intentProbeIps()
+        if (cached.isNotEmpty()) {
+            trace.append("dns cached ${cached.size}v4; ")
+            val (ok, stage) = probeIpsTls(cached, host, trace)
+            if (ok) {
+                probeTunnelDns(host, trace)
+                return true to trace.toString()
+            }
+            trace.append(stage)
+            return false to trace.toString()
+        }
+        // Legacy path: no cached IPs (old app version). System DNS first.
         val dnsStart = SystemClock.elapsedRealtime()
         val addrs = try {
             java.net.InetAddress.getAllByName(host)
         } catch (error: Exception) {
-            trace.append("dns FAIL(${error.javaClass.simpleName})")
+            trace.append("dns ${error.javaClass.simpleName}")
             return false to trace.toString()
         }
-        val v4count = addrs.count { it is java.net.Inet4Address }
-        trace.append("dns ${v4count}v4 ${SystemClock.elapsedRealtime() - dnsStart}ms; ")
-        // Stage 2: raw TCP to the first IPv4:443.
-        val first4 = addrs.firstOrNull { it is java.net.Inet4Address }
-        if (first4 == null) {
-            trace.append("tcp4 no-v4; ")
-        } else {
+        val v4 = addrs.filterIsInstance<java.net.Inet4Address>()
+        trace.append("dns ${v4.size}v4 ${SystemClock.elapsedRealtime() - dnsStart}ms; ")
+        if (v4.isEmpty()) {
+            trace.append("tcp4 no-v4")
+            return false to trace.toString()
+        }
+        val (ok, stage) = probeIpsTls(v4.map { it.hostAddress ?: "" }.filter { it.isNotEmpty() }, host, trace)
+        if (ok) {
+            return true to trace.toString()
+        }
+        trace.append(stage)
+        return false to trace.toString()
+    }
+
+    /** IPs passed by the activity, resolved before the tunnel went up. */
+    private fun intentProbeIps(): List<String> =
+        probeIpsCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+    /**
+     * TCP + TLS-with-SNI + HTTP GET against raw IPs. Returns (true, "") on
+     * the first IP that yields >=1KB, else (false, stage-trace).
+     */
+    private fun probeIpsTls(ips: List<String>, sniHost: String, trace: StringBuilder): Pair<Boolean, String> {
+        val stage = StringBuilder()
+        for (ip in ips.take(4)) {
             try {
                 val tcpStart = SystemClock.elapsedRealtime()
-                java.net.Socket().use { socket ->
-                    socket.connect(java.net.InetSocketAddress(first4, 443), 5_000)
+                val raw = java.net.Socket()
+                raw.connect(java.net.InetSocketAddress(ip, 443), 5_000)
+                stage.append("tcp4 ok; ")
+                val factory = javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory
+                val tls = factory.createSocket(raw, sniHost, 443, true) as javax.net.ssl.SSLSocket
+                try {
+                    val params = tls.sslParameters
+                    params.serverNames = listOf(javax.net.ssl.SNIHostName(sniHost))
+                    tls.sslParameters = params
+                    tls.soTimeout = 12_000
+                    tls.startHandshake()
+                    val out = tls.outputStream
+                    out.write("GET / HTTP/1.1\r\nHost: $sniHost\r\nConnection: close\r\n\r\n".toByteArray())
+                    out.flush()
+                    val input = tls.inputStream
+                    val buffer = ByteArray(8192)
+                    var total = 0
+                    while (total < 8192) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                    }
+                    tls.close()
+                    if (total >= 1024) {
+                        trace.append("tcp4 ok ${SystemClock.elapsedRealtime() - tcpStart}ms; https ok ${total}b; ")
+                        return true to ""
+                    }
+                    stage.append("https empty(${total}b); ")
+                } finally {
+                    try { tls.close() } catch (ignored: Exception) { }
                 }
-                trace.append("tcp4 ok ${SystemClock.elapsedRealtime() - tcpStart}ms; ")
             } catch (error: Exception) {
-                trace.append("tcp4 ${error.javaClass.simpleName}")
-                return false to trace.toString()
+                stage.append("ip $ip ${error.javaClass.simpleName}; ")
             }
         }
-        // Stage 3: full HTTPS GET (TLS + HTTP + body through the TUN).
-        var connection: HttpsURLConnection? = null
+        return false to stage.toString()
+    }
+
+    /** Informational only: does tunnel DNS resolve? Never fails the proof. */
+    private fun probeTunnelDns(host: String, trace: StringBuilder) {
         try {
-            val url = java.net.URL("https://$host/")
-            connection = url.openConnection() as HttpsURLConnection
-            connection.requestMethod = "GET"
-            connection.connectTimeout = 12_000
-            connection.readTimeout = 20_000
-            connection.instanceFollowRedirects = false
-            connection.responseCode
-            val buffer = ByteArray(8192)
-            var total = 0
-            val input = connection.inputStream
-            // 8KB cap: several full-size packets prove real browsing while
-            // finishing fast on slow links; 64KB only made slow nets slower.
-            while (total < 8192) {
-                val read = input.read(buffer)
-                if (read < 0) {
-                    break
-                }
-                total += read
-            }
-            if (total >= 1024) {
-                trace.append("https ok ${total}b")
-                return true to trace.toString()
-            }
-            trace.append("https empty(${total}b)")
+            val addrs = java.net.InetAddress.getAllByName(host)
+            trace.append("tun-dns ${addrs.size}ok; ")
         } catch (error: Exception) {
-            trace.append("https ${error.javaClass.simpleName}")
-        } finally {
-            connection?.disconnect()
+            trace.append("tun-dns ${error.javaClass.simpleName}(warn); ")
         }
-        return false to trace.toString()
     }
 
     private fun writeState(connected: Boolean, serverId: String?, lastError: String?) {

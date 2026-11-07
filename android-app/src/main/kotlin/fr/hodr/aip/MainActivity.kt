@@ -374,16 +374,36 @@ class MainActivity : Activity() {
             return
         }
         val (host, port) = split
-        PiaVpnService.startAction(
-            this,
-            peerIp = result.lease.peerIp,
-            endpoint = host,
-            serverPort = port,
-            serverKey = result.lease.serverPublicKey,
-            dnsServersCsv = result.dnsServers.joinToString(","),
-            allowLan = allowLanBox.isChecked,
-            serverId = server.id,
-        )
+        val allowLan = allowLanBox.isChecked
+        // Resolve the probe host NOW on the plain network, before the tunnel
+        // claims DNS. These IPs ride inside the tunnel (TCP+TLS with SNI),
+        // so a dead tunnel-DNS can no longer fake a dead tunnel. This is the
+        // IP cache: fresh every connect, never stale across server changes.
+        connectStatus.text = "Connecting... verifying traffic"
+        Thread {
+            val probeIps = try {
+                java.net.InetAddress.getAllByName("www.google.com")
+                    .filterIsInstance<java.net.Inet4Address>()
+                    .take(4).joinToString(",") { it.hostAddress ?: "" }
+                    .split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    .joinToString(",")
+            } catch (error: Exception) {
+                ""
+            }
+            runOnUiThread {
+                PiaVpnService.startAction(
+                    this,
+                    peerIp = result.lease.peerIp,
+                    endpoint = host,
+                    serverPort = port,
+                    serverKey = result.lease.serverPublicKey,
+                    dnsServersCsv = result.dnsServers.joinToString(","),
+                    allowLan = allowLan,
+                    serverId = server.id,
+                    probeIpsCsv = probeIps,
+                )
+            }
+        }.apply { isDaemon = true }.start()
         pendingLease = null
         pendingServer = null
         // The service writes pia-vpn-state itself once real traffic is proven.
