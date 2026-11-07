@@ -98,6 +98,12 @@ class MainActivity : Activity() {
         connectStatus = findViewById(R.id.connStatus)
         connectProgress = findViewById(R.id.connectProgress)
         allowLanBox = findViewById(R.id.allowLan)
+        findViewById<TextView>(R.id.appVersion).text =
+            "v" + try {
+                packageManager.getPackageInfo(packageName, 0).versionName
+            } catch (error: Exception) {
+                "?"
+            }
 
         allowLanBox.isChecked = piaPrefs().getBoolean(KEY_ALLOW_LAN, false)
         allowLanBox.setOnCheckedChangeListener { _, checked ->

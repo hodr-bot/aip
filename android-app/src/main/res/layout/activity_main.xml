@@ -221,6 +221,15 @@
                     android:text="Account"
                     android:textColor="@color/pia_muted" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/appVersion"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="8dp"
+                android:textSize="11sp"
+                android:textColor="@color/pia_muted" />
         </LinearLayout>
     </LinearLayout>
 </ScrollView>
