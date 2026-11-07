@@ -16,8 +16,8 @@ android {
         applicationId = "fr.hodr.aip"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "1.13"
+        versionCode = 15
+        versionName = "1.14"
     }
 
     splits {

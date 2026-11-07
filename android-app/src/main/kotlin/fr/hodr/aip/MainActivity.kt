@@ -14,9 +14,9 @@ import android.provider.Settings
 import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
-import com.google.android.material.textfield.TextInputEditText
 import java.util.concurrent.atomic.AtomicInteger
 import pia.core.Clock
 import pia.core.HttpPort
@@ -49,8 +49,8 @@ class MainActivity : Activity() {
 
     private lateinit var loginContainer: View
     private lateinit var mainContainer: View
-    private lateinit var usernameField: TextInputEditText
-    private lateinit var passwordField: TextInputEditText
+    private lateinit var usernameField: EditText
+    private lateinit var passwordField: EditText
     private lateinit var loginStatus: TextView
     private lateinit var selectedStatus: TextView
     private lateinit var connectButton: Button
