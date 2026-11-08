@@ -4,10 +4,12 @@ package pia.core
  * Catalog entry for one PIA region: the region [id] plus the [hostname]
  * to dial with [PiaClient.addKey]. [displayName] is the human-readable
  * region name from the server list ("US Florida"), falling back to [id].
- * [virtual] marks a virtual location (the payload's `geo` flag is false:
- * the exit IP is elsewhere). [streaming] marks a streaming-optimized
- * region (id suffix `-so`). [latencyMs] is attached by the caller
- * (platform ping probe); the server-list payload carries no latency.
+ * [country] is the payload ISO code ("DK" for denmark: region ids are not
+ * ISO codes). [virtual] marks a virtual location (the payload's `geo`
+ * flag is true: the exit IP geolocates there, the hardware sits
+ * elsewhere). [streaming] marks a streaming-optimized region (id suffix
+ * `-so`). [latencyMs] is attached by the caller (platform ping probe);
+ * the server-list payload carries no latency.
  */
 data class ServerEntry(
     val id: String,
@@ -16,6 +18,7 @@ data class ServerEntry(
     val displayName: String = "",
     val virtual: Boolean = false,
     val streaming: Boolean = false,
+    val country: String = "",
 ) {
     /** Human-readable title, never blank: [displayName] or [id]. */
     fun displayTitle(): String = displayName.ifEmpty { id }
@@ -111,8 +114,9 @@ class ServerCatalog(
                             id = id,
                             hostname = dns,
                             displayName = name,
-                            virtual = geo == false,
+                            virtual = geo == true,
                             streaming = id.endsWith("-so"),
+                            country = findStringField(region.first, "country").orEmpty(),
                         ),
                     )
                 }

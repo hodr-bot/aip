@@ -108,8 +108,5 @@ class ServerListActivity : Activity() {
         const val EXTRA_SERVER_STREAMING = "serverStreaming"
 
         private val HttpUrlConnectionPortImpl: HttpPort = HttpUrlConnectionPort()
-
-        /** Flag emoji for a region id; kept here for callers outside [ServerLabels]. */
-        fun flagFor(id: String): String = ServerLabels.flagFor(id)
     }
 }
