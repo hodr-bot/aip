@@ -119,10 +119,37 @@
       cursor: pointer;
       display: flex;
       justify-content: space-between;
+      align-items: center;
       gap: 8px;
     }
     #serverList button.selected {
       border-color: var(--pia-accent);
+      color: var(--pia-accent);
+    }
+    #serverList .cc {
+      flex: none;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--pia-muted);
+      border: 1px solid #2c3a2c;
+      border-radius: 5px;
+      padding: 2px 5px;
+    }
+    #serverList button.selected .cc {
+      color: var(--pia-accent);
+      border-color: var(--pia-accent);
+    }
+    #serverList .srv-title {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #serverList .tag-icon {
+      flex: none;
+      width: 14px;
+      height: 14px;
       color: var(--pia-accent);
     }
     #serverList .latency { color: var(--pia-muted); font-size: 12px; }

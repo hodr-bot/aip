@@ -75,6 +75,32 @@ function clearOrganisedList() {
 
 // Sort helper shared with ServerCatalog: lowest known latency first,
 // unmeasured last.
+var SVG_NS = 'http://www.w3.org/2000/svg';
+// Inline vector icons, no emoji: cloud outline for virtual locations,
+// play triangle for streaming-optimized regions.
+function makeTagIcon(kind, label) {
+  var svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'tag-icon');
+  svg.setAttribute('aria-hidden', 'true');
+  var title = document.createElementNS(SVG_NS, 'title');
+  title.textContent = label;
+  svg.appendChild(title);
+  var path = document.createElementNS(SVG_NS, 'path');
+  if (kind === 'virtual') {
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('d', 'M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z');
+  } else {
+    svg.setAttribute('fill', 'currentColor');
+    path.setAttribute('d', 'M8 5v14l11-7z');
+  }
+  svg.appendChild(path);
+  return svg;
+}
 function compareLatencyThenTitle(left, right) {
   var leftKnown = (typeof left.latencyMs === 'number');
   var rightKnown = (typeof right.latencyMs === 'number');
@@ -105,12 +131,26 @@ function decorateServerEntry(server) {
     id: server.id,
     hostname: server.hostname,
     latencyMs: (typeof server.latencyMs === 'number') ? server.latencyMs : null,
-    displayTitle: server.id + ' · ' + server.hostname
+    displayTitle: server.displayName || server.id,
+    country: server.country || '',
+    virtual: server.virtual === true,
+    streaming: server.streaming === true
   };
 }
 
+var serverTitleById = {};
+
+function prettyServerTitle(id) {
+  return serverTitleById[id] || id;
+}
+
 function organiseServers(servers) {
-  return orderServersByLatency(servers.map(decorateServerEntry));
+  var ordered = orderServersByLatency(servers.map(decorateServerEntry));
+  serverTitleById = {};
+  ordered.forEach(function (entry) {
+    serverTitleById[entry.id] = entry.displayTitle;
+  });
+  return ordered;
 }
 
 function fetchServers() {
@@ -156,16 +196,27 @@ function selectServer(serverId) {
 function createServerRow(server, isSelected) {
   var row = document.createElement('button');
   row.type = 'button';
+  row.className = 'server-row' + (isSelected ? ' selected' : '');
+  if (server.country) {
+    var badge = document.createElement('span');
+    badge.className = 'cc';
+    badge.textContent = server.country;
+    row.appendChild(badge);
+  }
   var label = document.createElement('span');
+  label.className = 'srv-title';
   label.textContent = server.displayTitle;
+  row.appendChild(label);
+  if (server.streaming) {
+    row.appendChild(makeTagIcon('streaming', 'Streaming optimized'));
+  }
+  if (server.virtual) {
+    row.appendChild(makeTagIcon('virtual', 'Virtual location'));
+  }
   var latency = document.createElement('span');
   latency.className = 'latency';
   latency.textContent = formatLatency(server.latencyMs);
-  row.appendChild(label);
   row.appendChild(latency);
-  if (isSelected) {
-    row.classList.add('selected');
-  }
   row.addEventListener('click', function () {
     selectServer(server.id);
   });
@@ -214,8 +265,11 @@ function refreshOrganisedList() {
     }
     return centraliseDefaultSelection(servers, storedId).then(function (effectiveId) {
       renderOrganisedServers(servers, effectiveId);
+      // Titles are known only now: repaint the status page so the
+      // server row shows the pretty name instead of the raw id.
+      refreshStatusPage();
       if (effectiveId) {
-        showStatusMessage('Selected server: ' + effectiveId);
+        showStatusMessage('Selected server: ' + prettyServerTitle(effectiveId));
       } else {
         showStatusMessage('Choose a server below.');
       }
@@ -266,7 +320,7 @@ function renderStatus(status) {
     headerDotElement.className = 'dot' + (dot ? ' ' + dot : '');
   }
   if (statusServerElement) {
-    statusServerElement.textContent = status.serverId || '–';
+    statusServerElement.textContent = status.serverId ? prettyServerTitle(status.serverId) : '–';
   }
   if (statusProxyElement) {
     statusProxyElement.textContent = (status.proxyHost || '–') + ':' + (status.proxyPort || '–');

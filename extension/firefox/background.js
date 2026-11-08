@@ -400,7 +400,8 @@ function extractBalancedObjectAt(body, start) {
   return null;
 }
 
-// Mirror ServerCatalog.parseRegions: offline regions skipped, id/dns kept.
+// Mirror ServerCatalog.parseRegions: offline regions skipped; keeps the
+// pretty name, country code and geo/streaming flags for the popup list.
 function parseServerRegions(body) {
   var entries = [];
   var regionsIndex = body.indexOf('"regions"');
@@ -440,7 +441,15 @@ function parseServerRegions(body) {
       var id = findStringField(region.text, 'id');
       var dns = findStringField(region.text, 'dns');
       if (id && dns) {
-        entries.push({ id: id, hostname: dns, latencyMs: null });
+        entries.push({
+          id: id,
+          hostname: dns,
+          latencyMs: null,
+          displayName: findStringField(region.text, 'name') || id,
+          country: findStringField(region.text, 'country') || '',
+          virtual: findBoolFieldValue(region.text, 'geo') === true,
+          streaming: id.slice(-3) === '-so'
+        });
       }
     }
   }
@@ -531,7 +540,15 @@ function measureServerLatency(hostname, timeoutMs) {
 function annotateServersWithLatency(servers) {
   return Promise.all(servers.map(function (entry) {
     return measureServerLatency(entry.hostname).then(function (latency) {
-      return { id: entry.id, hostname: entry.hostname, latencyMs: latency };
+      return {
+        id: entry.id,
+        hostname: entry.hostname,
+        latencyMs: latency,
+        displayName: entry.displayName,
+        country: entry.country,
+        virtual: entry.virtual,
+        streaming: entry.streaming
+      };
     });
   })).then(function (probed) {
     return probed.sort(compareServersByLatency);
