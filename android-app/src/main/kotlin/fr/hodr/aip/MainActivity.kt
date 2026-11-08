@@ -8,6 +8,8 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -388,6 +390,18 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Underlying link only (same rule as the service): VPN excluded. */
+    private fun hasUsableNetwork(): Boolean {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val networks = try { cm.allNetworks } catch (error: Exception) { return true }
+        for (net in networks) {
+            val caps = try { cm.getNetworkCapabilities(net) } catch (error: Exception) { null } ?: continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return true
+        }
+        return false
+    }
+
     private fun launchVpn(result: LeaseResult, server: ServerEntry) {
         val split = splitEndpoint(result.lease.endpoint)
         if (split == null) {
@@ -398,6 +412,14 @@ class MainActivity : Activity() {
         }
         val (host, port) = split
         val allowLan = allowLanBox.isChecked
+        // No usable link (airplane mode, dead wifi): do not even start the
+        // service — it would park at once. Tell the user, stay quiet.
+        if (!hasUsableNetwork()) {
+            setConnecting(false)
+            connectStatus.text = "No network — paused"
+            android.widget.Toast.makeText(this, "Pas de réseau — reprise auto dès retour", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
         // Resolve the probe host NOW on the plain network, before the tunnel
         // claims DNS. These IPs ride inside the tunnel (TCP+TLS with SNI),
         // so a dead tunnel-DNS can no longer fake a dead tunnel. This is the

@@ -7,6 +7,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.SystemClock
@@ -62,6 +66,17 @@ class PiaVpnService : VpnService() {
         /** Freshness window: the service heartbeats every 5s. */
         const val ALIVE_FRESH_MS = 20_000L
         const val FALLBACK_DNS = "10.0.0.243"
+
+        /**
+         * ULA address giving the TUN interface an IPv6 identity. PIA is
+         * IPv4-only, so no IPv6 lease exists — but without ANY IPv6 address
+         * on the interface Android drops the ::/0 route and public IPv6
+         * leaks around the tunnel. This address is never routed anywhere
+         * (ULA, device-local): v6 packets enter the TUN, WireGuard seals
+         * them, PIA drops them. Blocked, never leaked. IPv4 LAN bypass is
+         * unaffected.
+         */
+        const val TUN_IPV6_ADDRESS = "fd8e:2a41:9c7d::1"
 
         /**
          * TUN MTU. The path drops packets over 1000 bytes, so the interface
@@ -133,7 +148,43 @@ class PiaVpnService : VpnService() {
     private var trafficStalled = false
 
     @Volatile
-    private var probeIpsCsv: String = ""
+    private var probeIpsCsv = ""
+
+    /**
+     * Link state from ConnectivityManager. linkUsable = an underlying
+     * (non-VPN) network with INTERNET capability exists; linkValidated =
+     * it actually reaches the internet (VALIDATED). While !linkUsable the
+     * service parks: no handshake, no probes, no alerts — zero radio burn —
+     * and resumes on the callback. linkLostAt stamps a live tunnel's grace
+     * period (60s for WiFi->mobile handover) before teardown.
+     */
+    @Volatile
+    private var linkUsable = true
+
+    @Volatile
+    private var linkValidated = true
+
+    @Volatile
+    private var linkLostAt = 0L
+
+    @Volatile
+    private var parkedForNoNetwork = false
+
+    @Volatile
+    private var connecting = false
+
+    @Volatile
+    private var connectingSince = 0L
+
+    /** Set by the link callback: the watchdog re-proves traffic at once. */
+    @Volatile
+    private var forceVerify = false
+
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
+
+    /** Checkbox value of the last start, so auto-resume keeps LAN mode. */
+    @Volatile
+    private var lastAllowLan = false
 
     override fun onCreate() {
         super.onCreate()
@@ -142,6 +193,7 @@ class PiaVpnService : VpnService() {
         getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
             .putBoolean(STATE_CONNECTED, false)
             .apply()
+        watchConnectivity()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -151,6 +203,7 @@ class PiaVpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
+        lastAllowLan = intent?.getBooleanExtra(EXTRA_ALLOW_LAN, false) ?: false
         val peerIp = intent?.getStringExtra(EXTRA_PEER_IP)
         val endpoint = intent?.getStringExtra(EXTRA_ENDPOINT)
         val serverPort = intent?.getIntExtra(EXTRA_SERVER_PORT, -1) ?: -1
@@ -177,6 +230,14 @@ class PiaVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        try {
+            netCallback?.let { cb ->
+                (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+                    ?.unregisterNetworkCallback(cb)
+            }
+        } catch (ignored: Exception) {
+        }
+        netCallback = null
         bringDown()
         super.onDestroy()
     }
@@ -225,25 +286,37 @@ class PiaVpnService : VpnService() {
     private fun buildStatusNotification(txBytes: Long, rxBytes: Long): Notification {
         val server = activeServerName.ifEmpty { activeServerId ?: "…" }
         val counters = "▲ ${fmtBytes(txBytes)} · ▼ ${fmtBytes(rxBytes)}"
-        val lan = if (activeAllowLan) {
-            "LAN direct (unless Android block-without-VPN is on)"
-        } else {
-            "LAN via tunnel"
+        val lan = if (activeAllowLan) "LAN direct" else "LAN via tunnel"
+        if (parkedForNoNetwork && backend == null) {
+            return Notification.Builder(this, SILENT_CHANNEL_ID)
+                .setContentTitle("AIP VPN · en pause")
+                .setContentText("pas de réseau — reprise automatique")
+                .setStyle(
+                    Notification.BigTextStyle()
+                        .bigText("Serveur : $server\nÉtat : en pause (pas de réseau)\nReprise automatique dès le retour du réseau."),
+                )
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentIntent(openAppIntent())
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .build()
         }
+        val link = if (!linkUsable) " · réseau perdu — en pause" else ""
+        val netLine = if (!linkUsable) "\nRéseau : perdu — en pause (reprise auto)" else ""
         val title = "AIP VPN · $server"
         val detail = if (trafficStalled) {
-            "$counters · reconnexion…"
+            "$counters · reconnexion…$link"
         } else if (connectedSinceMs > 0L) {
-            "$counters · ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}"
+            "$counters · ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}$link"
         } else {
-            "$counters · connexion…"
+            "$counters · connexion…$link"
         }
         return Notification.Builder(this, SILENT_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(detail)
             .setStyle(
                 Notification.BigTextStyle()
-                    .bigText("Serveur : $server\nTrafic : $counters\nSession : ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}\n$lan"),
+                    .bigText("Serveur : $server\nTrafic : $counters\nSession : ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}\n$lan$netLine"),
             )
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openAppIntent())
@@ -307,6 +380,12 @@ class PiaVpnService : VpnService() {
             stopSelf()
             return
         }
+        lastAllowLan = intentAllowLan
+        // Boot/Always-on restart with no link: park, do not burn attempts.
+        if (!linkUsableNow()) {
+            parkForNoNetwork()
+            return
+        }
         // A restart intent carries no checkbox: the persisted UI preference is
         // the truth. Otherwise a reboot silently drops the LAN bypass.
         val allowLan = try {
@@ -329,7 +408,13 @@ class PiaVpnService : VpnService() {
                 store.loadLastServerId(),
             )
         } catch (error: Exception) {
-            // Offline at boot or stale account: alert, then stop; the system retries.
+            // Offline at boot or stale account: a dead link parks silently
+            // (the callback resumes us); anything else alerts, then the
+            // system retries.
+            if (shouldParkInstead()) {
+                parkForNoNetwork()
+                return
+            }
             writeState(false, store.loadLastServerId(), error.message ?: error.javaClass.simpleName)
             postAlert("AIP VPN tunnel down", "Restore failed: ${error.message ?: error.javaClass.simpleName}")
             stopSelf()
@@ -347,6 +432,19 @@ class PiaVpnService : VpnService() {
         serverName: String = "",
         probeIps: String = "",
     ) {
+        // Single-flight: an in-flight attempt wins. Stale guard (>90s) in
+        // case a worker thread ever died without resetting the flag.
+        if (connecting && SystemClock.elapsedRealtime() - connectingSince < 90_000) return
+        connecting = true
+        connectingSince = SystemClock.elapsedRealtime()
+        // No link, no attempt: handshake sleeps and TCP timeouts would burn
+        // radio for nothing. Park silently; the callback resumes us.
+        if (!linkUsableNow()) {
+            connecting = false
+            parkForNoNetwork()
+            return
+        }
+        parkedForNoNetwork = false
         activeServerId = serverId
         activeServerName = serverName
         activeAllowLan = allowLan
@@ -359,7 +457,10 @@ class PiaVpnService : VpnService() {
             val ifaceBuilder = Interface.Builder()
                 .setKeyPair(WgKeys.loadOrGenerate(this))
                 .setMtu(TUNNEL_MTU)
-                .parseAddresses("$peerIp/32")
+                // IPv4 lease plus the ULA identity: without an IPv6 address
+                // on the interface the ::/0 route never applies and public
+                // IPv6 leaks around the tunnel (see TUN_IPV6_ADDRESS).
+                .parseAddresses("$peerIp/32, $TUN_IPV6_ADDRESS/128")
             val dnsCsv = dnsServersCsv.ifBlank { FALLBACK_DNS }
             // The lease DNS (usually 10.0.0.243) has proven flaky: one dead
             // server means every name fails even with a live tunnel. Always
@@ -393,6 +494,14 @@ class PiaVpnService : VpnService() {
                 sleepMs = { SystemClock.sleep(it) },
             )
             if (!handshake.completed) {
+                connecting = false
+                // Dead link (or wifi without internet): park silently instead
+                // of the alert + stopSelf loop that Always-on would restart
+                // forever. A real tunnel failure still alerts below.
+                if (shouldParkInstead()) {
+                    parkForNoNetwork()
+                    return
+                }
                 failTraffic(
                     activeBackend, activeTunnel, serverId,
                     "handshake unanswered (tx=${handshake.txBytes} rx=0)",
@@ -402,6 +511,7 @@ class PiaVpnService : VpnService() {
             val (flows, trace) = verifyTraffic()
             if (flows) {
                 trafficStalled = false
+                connecting = false
                 connectedSinceMs = System.currentTimeMillis()
                 writeState(true, serverId, null)
                 clearAlert()
@@ -417,9 +527,24 @@ class PiaVpnService : VpnService() {
                 } catch (error: Exception) {
                     "counters n/a"
                 }
+                // Verify failed AFTER a live handshake: if the link itself
+                // is dead or unvalidated (wifi without internet), park
+                // silently. Only a live link + dead tunnel alerts.
+                connecting = false
+                if (shouldParkInstead()) {
+                    parkForNoNetwork()
+                    return
+                }
                 failTraffic(activeBackend, activeTunnel, serverId, "no traffic flows ($trace; $counters)")
             }
         } catch (error: Exception) {
+            connecting = false
+            // Same park rule on unexpected teardown: a dead link parks
+            // silently, a live link with a broken tunnel alerts.
+            if (shouldParkInstead()) {
+                parkForNoNetwork()
+                return
+            }
             try {
                 activeBackend.setState(activeTunnel, Tunnel.State.DOWN, null)
             } catch (ignored: Exception) {
@@ -538,6 +663,108 @@ class PiaVpnService : VpnService() {
         }
     }
 
+    /**
+     * Connectivity-driven pause/resume. The official-app battery bug was a
+     * hot loop: VPN on + no usable network = attempts that can never succeed
+     * (handshake sleeps, TCP timeouts, Always-on restarts), forever.
+     * Here a dead link PARKS the service — no handshake, no probes, no
+     * alerts — and the system callback resumes it when a validated link
+     * returns. Wifi connected-but-useless (no VALIDATED) is treated the
+     * same after one failed attempt: the attempt is the test, parking is
+     * the patience.
+     *
+     * Only UNDERLYING networks count: once our tunnel is up it would
+     * otherwise be mistaken for the link. VPN transports are excluded.
+     */
+    private fun underlyingLink(): Pair<Boolean, Boolean> {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return true to true
+        var usable = false
+        var validated = false
+        val networks = try { cm.allNetworks } catch (ignored: Exception) { return true to true }
+        for (net in networks) {
+            val caps = try {
+                cm.getNetworkCapabilities(net)
+            } catch (ignored: Exception) {
+                null
+            } ?: continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                usable = true
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    validated = true
+                }
+            }
+        }
+        return usable to validated
+    }
+
+    private fun linkUsableNow(): Boolean = underlyingLink().first
+
+    private fun linkValidatedNow(): Boolean = underlyingLink().second
+
+    /** Park instead of alerting when the link itself is the problem. */
+    private fun shouldParkInstead(): Boolean = !linkUsableNow() || !linkValidatedNow()
+
+    private fun snapshotLink() {
+        val (usable, validated) = underlyingLink()
+        if (!usable && linkUsable) linkLostAt = SystemClock.elapsedRealtime()
+        if (usable) linkLostAt = 0L
+        linkUsable = usable
+        linkValidated = validated
+    }
+
+    private fun watchConnectivity() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        snapshotLink()
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { onLinkChanged() }
+            override fun onLost(network: Network) { onLinkChanged() }
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) { onLinkChanged() }
+        }
+        netCallback = callback
+        try {
+            cm.registerNetworkCallback(request, callback)
+        } catch (ignored: Exception) {
+            netCallback = null
+        }
+    }
+
+    private fun onLinkChanged() {
+        val wasUsable = linkUsable
+        val wasValidated = linkValidated
+        snapshotLink()
+        if (!linkUsable) return
+        if (backend != null) {
+            // Tunnel still up through a flap: re-prove at once instead of
+            // waiting for the next minute tick.
+            if (!wasUsable || !wasValidated) forceVerify = true
+            return
+        }
+        if (parkedForNoNetwork && !connecting && (!wasUsable || !wasValidated)) {
+            parkedForNoNetwork = false
+            val resumeAllowLan = lastAllowLan
+            Thread { restoreLease(resumeAllowLan) }.start()
+        }
+    }
+
+    /**
+     * Tear down and park SILENTLY: no alert, no stopSelf (stopping would let
+     * Always-on restart us into the same dead link). Zero work happens while
+     * parked; [onLinkChanged] resumes. The paused state is visible in the
+     * mandatory notice and in pia-vpn-state for the UI.
+     */
+    private fun parkForNoNetwork() {
+        val server = activeServerId
+        bringDown()
+        parkedForNoNetwork = true
+        writeState(false, server, "En pause — pas de réseau")
+        goForeground()
+    }
+
     private fun writeState(connected: Boolean, serverId: String?, lastError: String?) {
         getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
             .putBoolean(STATE_CONNECTED, connected)
@@ -581,7 +808,21 @@ class PiaVpnService : VpnService() {
                         lastStatus = now
                         refreshStatus()
                     }
-                    if (now - lastVerify >= 60_000) {
+                    if (!linkUsable) {
+                        // Link dead or gone: NO probes (zero radio burn), just
+                        // show the pause. Past 60s of dead link a live tunnel
+                        // is useless — WireGuard would re-handshake forever —
+                        // so tear it down and park; the callback resumes.
+                        // WiFi->mobile handovers pass through here unharmed.
+                        trafficStalled = false
+                        if (linkLostAt > 0 && SystemClock.elapsedRealtime() - linkLostAt > 60_000) {
+                            bringDown()
+                            parkedForNoNetwork = true
+                            writeState(false, watchedServer, "En pause — pas de réseau")
+                            goForeground()
+                        }
+                    } else if (now - lastVerify >= 60_000 || forceVerify) {
+                        forceVerify = false
                         lastVerify = now
                         if (!verifyTraffic().first) {
                             if (!trafficStalled) {
