@@ -39,14 +39,20 @@ class ServerCatalog(
         const val SERVER_LIST_URL = "https://serverlist.piaservers.net/vpninfo/servers/v6"
     }
 
-    /** GET the server list and parse it into region entries. */
-    fun fetchServers(): List<ServerEntry> {
-        val entries = parseRegions(http.get(SERVER_LIST_URL))
+    /** GET the raw server list body (cacheable, parsed with [parseBody]). */
+    fun fetchRaw(): String = http.get(SERVER_LIST_URL)
+
+    /** Parse a server list body; throws when it holds no regions. */
+    fun parseBody(body: String): List<ServerEntry> {
+        val entries = parseRegions(body)
         if (entries.isEmpty()) {
             throw PiaApiError("server list held no regions")
         }
         return entries
     }
+
+    /** GET the server list and parse it into region entries. */
+    fun fetchServers(): List<ServerEntry> = parseBody(fetchRaw())
 
     /** Return the entry with [id], or null when the catalog holds none. */
     fun pickById(servers: List<ServerEntry>, id: String): ServerEntry? =

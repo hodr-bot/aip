@@ -438,6 +438,17 @@ class PiaVpnService : VpnService() {
                 store.loadLastServerId(),
             )
         } catch (error: Exception) {
+            if (error !is pia.core.PiaAuthError && error !is pia.core.PiaApiError) {
+                val cached = OfflineCache(this).loadLease(store.loadLastServerId())
+                if (cached != null) {
+                    bringUp(
+                        cached.peerIp, cached.endpointHost, cached.endpointPort,
+                        cached.serverKey, cached.dnsCsv.ifEmpty { FALLBACK_DNS },
+                        allowLan, store.loadLastServerId(), probeIps = cached.probeIpsCsv,
+                    )
+                    return
+                }
+            }
             // Offline at boot or stale account: a dead link parks silently
             // (the callback resumes us); anything else alerts, then the
             // system retries.
@@ -591,6 +602,7 @@ class PiaVpnService : VpnService() {
                 writeState(true, serverId, null)
                 clearAlert()
                 refreshStatus()
+                refreshCacheInTunnel()
                 startMonitor(activeBackend, activeTunnel)
             } else {
                 // Handshake counters BEFORE teardown: tx=0 nothing left the
@@ -885,6 +897,65 @@ class PiaVpnService : VpnService() {
      * the tunnel under Always-on block mode means total blackout. The
      * watchdog reports the stall once, then clears itself on recovery.
      */
+    @Volatile
+    private var lastCacheRefreshMs: Long = 0L
+
+    /**
+     * Refresh the offline caches while the tunnel carries traffic: fresh
+     * lease, fresh server list, fresh probe IPs. Silent by design: the
+     * caches are best-effort, the tunnel state is untouched.
+     */
+    private fun refreshCacheInTunnel() {
+        lastCacheRefreshMs = System.currentTimeMillis()
+        val serverId = activeServerId
+        Thread {
+            try {
+                val store = PrefsTokenStore(this)
+                val client = PiaClient(HttpUrlConnectionPort(), SystemClock())
+                val token = client.ensureValidToken(store)
+                val hostname = store.loadLastHost() ?: return@Thread
+                val id = serverId ?: store.loadLastServerId() ?: return@Thread
+                val publicKey = WgKeys.loadOrGenerate(this).publicKey.toBase64()
+                val result = client.addKey(hostname, token, publicKey)
+                val endpoint = result.lease.endpoint
+                val slash = endpoint.lastIndexOf(':')
+                if (slash > 0 && slash < endpoint.length - 1) {
+                    val port = endpoint.substring(slash + 1).toIntOrNull()
+                    if (port != null) {
+                        val probes = try {
+                            java.net.InetAddress.getAllByName("www.google.com")
+                                .filterIsInstance<java.net.Inet4Address>()
+                                .take(4)
+                                .mapNotNull { it.hostAddress }
+                                .joinToString(",")
+                        } catch (ignored: Exception) {
+                            ""
+                        }
+                        OfflineCache(this).saveLease(
+                            id,
+                            CachedLease(
+                                hostname, result.lease.peerIp,
+                                endpoint.substring(0, slash), port,
+                                result.lease.serverPublicKey,
+                                result.dnsServers.joinToString(","),
+                                probes, System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                }
+                try {
+                    OfflineCache(this).saveServerList(
+                        pia.core.ServerCatalog(HttpUrlConnectionPort()).fetchRaw(),
+                    )
+                } catch (ignored: Exception) {
+                    // Server list refresh is optional; the lease is the priority.
+                }
+            } catch (ignored: Exception) {
+                // Offline caches are best-effort; never touch the live tunnel.
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
     private fun startMonitor(activeBackend: GoBackend, activeTunnel: PiaTunnel) {
         stopMonitor()
         val watchedServer = activeServerId
@@ -921,6 +992,9 @@ class PiaVpnService : VpnService() {
                     } else if (now - lastVerify >= 60_000 || forceVerify) {
                         forceVerify = false
                         lastVerify = now
+                        if (now - lastCacheRefreshMs >= 12 * 3_600_000L) {
+                            refreshCacheInTunnel()
+                        }
                         if (!verifyTraffic().first) {
                             if (!trafficStalled) {
                                 trafficStalled = true

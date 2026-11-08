@@ -42,6 +42,7 @@ class MainActivity : Activity() {
     private val clock: Clock = SystemClock()
     private val client = PiaClient(http, clock)
     private val catalog = ServerCatalog(http)
+    private val offlineCache by lazy { OfflineCache(this) }
     private lateinit var tokenStore: PrefsTokenStore
 
     @Volatile
@@ -213,16 +214,32 @@ class MainActivity : Activity() {
                     val token = try {
                         client.ensureValidToken(tokenStore)
                     } catch (authError: Exception) {
-                        val message = authError.message ?: authError.javaClass.simpleName
-                        runOnUiThread {
-                            setConnecting(false)
-                            pendingLease = null
-                            pendingServer = null
-                            connectStatus.text = "Login failed: $message"
-                            tokenStore.clearCredentials()
-                            showLoginView(true)
+                        if (authError is pia.core.PiaAuthError) {
+                            val message = authError.message ?: authError.javaClass.simpleName
+                            runOnUiThread {
+                                setConnecting(false)
+                                pendingLease = null
+                                pendingServer = null
+                                connectStatus.text = "Login failed: $message"
+                                tokenStore.clearCredentials()
+                                showLoginView(true)
+                            }
+                            notifyAlert("Login failed", message)
+                            return@Thread
                         }
-                        notifyAlert("Login failed", message)
+                        val cached = cachedLeaseResult(entry)
+                        if (cached == null) {
+                            val message = authError.message ?: authError.javaClass.simpleName
+                            runOnUiThread {
+                                setConnecting(false)
+                                pendingLease = null
+                                pendingServer = null
+                                connectStatus.text = "Connect failed: $message"
+                            }
+                            notifyAlert("Connect failed", message)
+                            return@Thread
+                        }
+                        runOnUiThread { launchAfterPermission(cached, entry) }
                         return@Thread
                     }
                     val remainingHours = token.remainingSec(clock.nowEpochSec()) / 3600
@@ -232,20 +249,26 @@ class MainActivity : Activity() {
                     val keyPair = WgKeys.loadOrGenerate(this@MainActivity)
                     val publicKey = keyPair.publicKey.toBase64()
                     runOnUiThread { connectStatus.text = "Requesting key..." }
-                    val result = client.addKey(entry.hostname, token, publicKey)
-                    pendingLease = result
-                    pendingServer = entry
-                    tokenStore.saveLastHost(entry.hostname)
-                    tokenStore.saveLastServerId(entry.id)
-                    runOnUiThread {
-                        val prepareIntent = VpnService.prepare(this@MainActivity)
-                        if (prepareIntent != null) {
-                            connectStatus.text = "Waiting for VPN permission..."
-                            startActivityForResult(prepareIntent, REQUEST_VPN_PERMISSION)
-                        } else {
-                            launchVpn(result, entry)
-                        }
+                    val result = try {
+                        client.addKey(entry.hostname, token, publicKey)
+                    } catch (addError: Exception) {
+                        if (addError is pia.core.PiaApiError) throw addError
+                        cachedLeaseResult(entry) ?: throw addError
                     }
+                    val split = splitEndpoint(result.lease.endpoint)
+                    if (split != null) {
+                        val (host, port) = split
+                        offlineCache.saveLease(
+                            entry.id,
+                            CachedLease(
+                                entry.hostname, result.lease.peerIp, host, port,
+                                result.lease.serverPublicKey,
+                                result.dnsServers.joinToString(","),
+                                "", System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                    runOnUiThread { launchAfterPermission(result, entry) }
                 } catch (error: Exception) {
                     val message = error.message ?: error.javaClass.simpleName
                     runOnUiThread {
@@ -257,6 +280,36 @@ class MainActivity : Activity() {
                     notifyAlert("Connect failed", message)
                 }
             }.start()
+    }
+
+    /** VPN permission gate shared by the fresh and cached lease paths. */
+    private fun launchAfterPermission(result: pia.core.LeaseResult, entry: ServerEntry) {
+        pendingLease = result
+        pendingServer = entry
+        tokenStore.saveLastHost(entry.hostname)
+        tokenStore.saveLastServerId(entry.id)
+        val prepareIntent = VpnService.prepare(this)
+        if (prepareIntent != null) {
+            connectStatus.text = "Waiting for VPN permission..."
+            startActivityForResult(prepareIntent, REQUEST_VPN_PERMISSION)
+        } else {
+            launchVpn(result, entry)
+        }
+    }
+
+    /** Cached lease when pre-tunnel network is dead. Null when none stored. */
+    private fun cachedLeaseResult(entry: ServerEntry): pia.core.LeaseResult? {
+        val cached = offlineCache.loadLease(entry.id) ?: return null
+        if (cached.hostname != entry.hostname) return null
+        runOnUiThread { connectStatus.text = "Connecting with cached lease" }
+        return pia.core.LeaseResult(
+            lease = pia.core.WireGuardLease(
+                peerIp = cached.peerIp,
+                serverPublicKey = cached.serverKey,
+                endpoint = "${cached.endpointHost}:${cached.endpointPort}",
+            ),
+            dnsServers = cached.dnsCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() },
+        )
     }
 
     /** Switch server in one tap: tear the old tunnel down, connect the new. */
@@ -317,7 +370,9 @@ class MainActivity : Activity() {
         }
         Thread {
             try {
-                val fetched = catalog.fetchServers()
+                val raw = catalog.fetchRaw()
+                val fetched = catalog.parseBody(raw)
+                offlineCache.saveServerList(raw)
                 servers = fetched
                 runOnUiThread {
                     if (selected == null) {
@@ -336,8 +391,32 @@ class MainActivity : Activity() {
                     }
                 }
             } catch (error: Exception) {
+                val cached = try {
+                    offlineCache.loadServerList()
+                } catch (ignored: Exception) {
+                    null
+                }
+                val cachedServers = try {
+                    if (cached != null) catalog.parseBody(cached.first) else null
+                } catch (ignored: Exception) {
+                    null
+                }
                 runOnUiThread {
-                    if (selected == null) {
+                    if (selected == null && cachedServers != null) {
+                        servers = cachedServers
+                        val lastId = tokenStore.loadLastServerId()
+                        val last = cachedServers.firstOrNull { it.id == lastId }
+                        if (last != null) {
+                            selected = last
+                            updateConnectState()
+                        }
+                        val ageH = (System.currentTimeMillis() - cached!!.second) / 3_600_000
+                        selectedStatus.text = if (selected != null) {
+                            "Selected: ${ServerLabels.label(selected!!)} (cached ${ageH}h)"
+                        } else {
+                            "Servers cached ${ageH}h old, tap Choose server"
+                        }
+                    } else if (selected == null) {
                         selectedStatus.text =
                             "Server list failed: ${error.message ?: error.javaClass.simpleName}"
                     }
@@ -453,8 +532,9 @@ class MainActivity : Activity() {
                     .split(",").map { it.trim() }.filter { it.isNotEmpty() }
                     .joinToString(",")
             } catch (error: Exception) {
-                ""
+                offlineCache.loadLease(server.id)?.probeIpsCsv.orEmpty()
             }
+            if (probeIps.isNotEmpty()) offlineCache.updateProbes(server.id, probeIps)
             runOnUiThread {
                 PiaVpnService.startAction(
                     this,
