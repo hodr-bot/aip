@@ -61,6 +61,7 @@ class PiaVpnService : VpnService() {
         private const val STATE_CONNECTED = "connected"
         private const val STATE_SERVER_ID = "serverId"
         private const val STATE_LAST_ERROR = "lastError"
+        private const val STATE_ERROR_AT = "errorAt"
         private const val STATE_ALIVE_AT = "aliveAt"
 
         /** Freshness window: the service heartbeats every 5s. */
@@ -186,12 +187,26 @@ class PiaVpnService : VpnService() {
     @Volatile
     private var lastAllowLan = false
 
+    /**
+     * True while the TUN carries the ULA IPv6 identity (v6 blocked via
+     * tunnel). Set false when refused, falling
+     * back to the v4-only config: v6 capture is then best-effort. Shown in
+     * the expanded notice so a leak report can be correlated.
+     */
+    @Volatile
+    private var activeV6Identity = true
+
     override fun onCreate() {
         super.onCreate()
         // A fresh process means no live tunnel: a previous process may have
         // been killed without onDestroy, leaving a stale "connected" behind.
         getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
             .putBoolean(STATE_CONNECTED, false)
+            // Fresh process = no live tunnel: old failures are history, never
+            // news. Without this the UI replays the previous session's error
+            // on every launch ("toujours cette erreur" while doing nothing).
+            .remove(STATE_LAST_ERROR)
+            .remove(STATE_ERROR_AT)
             .apply()
         watchConnectivity()
     }
@@ -199,7 +214,10 @@ class PiaVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_DISCONNECT) {
             clearAlert()
+            val lastServer = activeServerId
             bringDown()
+            // User disconnect: the error belonged to the dead session.
+            writeState(false, lastServer, null)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -303,6 +321,7 @@ class PiaVpnService : VpnService() {
         }
         val link = if (!linkUsable) " · réseau perdu — en pause" else ""
         val netLine = if (!linkUsable) "\nRéseau : perdu — en pause (reprise auto)" else ""
+        val v6line = "\nIPv6 : " + if (activeV6Identity) "bloqué via TUN" else "repli v4 (fuite possible)"
         val title = "AIP VPN · $server"
         val detail = if (trafficStalled) {
             "$counters · reconnexion…$link"
@@ -316,7 +335,7 @@ class PiaVpnService : VpnService() {
             .setContentText(detail)
             .setStyle(
                 Notification.BigTextStyle()
-                    .bigText("Serveur : $server\nTrafic : $counters\nSession : ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}\n$lan$netLine"),
+                    .bigText("Serveur : $server\nTrafic : $counters\nSession : ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}\n$lan$netLine$v6line"),
             )
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openAppIntent())
@@ -415,10 +434,43 @@ class PiaVpnService : VpnService() {
                 parkForNoNetwork()
                 return
             }
-            writeState(false, store.loadLastServerId(), error.message ?: error.javaClass.simpleName)
-            postAlert("AIP VPN tunnel down", "Restore failed: ${error.message ?: error.javaClass.simpleName}")
+            writeState(false, store.loadLastServerId(), error.javaClass.simpleName + ": " + (error.message ?: "?"))
+            postAlert("AIP VPN tunnel down", "Restore failed: ${error.javaClass.simpleName}: ${error.message ?: "?"}")
             stopSelf()
         }
+    }
+
+    /**
+     * WireGuard config for one connect attempt. [addressesCsv] is normally
+     * v4 lease and ULA identity; v4-only fallback if refused.
+     */
+    private fun buildConfig(
+        addressesCsv: String,
+        dnsServersCsv: String,
+        serverKey: String,
+        endpoint: String,
+        serverPort: Int,
+        allowLan: Boolean,
+    ): Config {
+        val ifaceBuilder = Interface.Builder()
+            .setKeyPair(WgKeys.loadOrGenerate(this))
+            .setMtu(TUNNEL_MTU)
+            .parseAddresses(addressesCsv)
+        val dnsCsv = dnsServersCsv.ifBlank { FALLBACK_DNS }
+        val dnsAll = (dnsCsv.split(",").map { it.trim() }
+            .filter { it.isNotEmpty() } +
+            listOf("1.1.1.1", "8.8.8.8")).distinct().joinToString(",")
+        ifaceBuilder.parseDnsServers(dnsAll)
+        val peerBuilder = Peer.Builder()
+            .setPublicKey(Key.fromBase64(serverKey))
+            .setEndpoint(InetEndpoint.parse("$endpoint:$serverPort"))
+        for (cidr in WireGuard.allowedIpCidrs(allowLan)) {
+            peerBuilder.addAllowedIp(InetNetwork.parse(cidr))
+        }
+        return Config.Builder()
+            .setInterface(ifaceBuilder.build())
+            .addPeer(peerBuilder.build())
+            .build()
     }
 
     private fun bringUp(
@@ -454,32 +506,36 @@ class PiaVpnService : VpnService() {
         tunnel = activeTunnel
         backend = activeBackend
         try {
-            val ifaceBuilder = Interface.Builder()
-                .setKeyPair(WgKeys.loadOrGenerate(this))
-                .setMtu(TUNNEL_MTU)
-                // IPv4 lease plus the ULA identity: without an IPv6 address
-                // on the interface the ::/0 route never applies and public
-                // IPv6 leaks around the tunnel (see TUN_IPV6_ADDRESS).
-                .parseAddresses("$peerIp/32, $TUN_IPV6_ADDRESS/128")
-            val dnsCsv = dnsServersCsv.ifBlank { FALLBACK_DNS }
-            // The lease DNS (usually 10.0.0.243) has proven flaky: one dead
-            // server means every name fails even with a live tunnel. Always
-            // append public resolvers as fallback; they route through the
-            // tunnel like everything else (AllowedIPs 0/0).
-            val dnsAll = (dnsCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() } +
-                listOf("1.1.1.1", "8.8.8.8")).distinct().joinToString(",")
-            ifaceBuilder.parseDnsServers(dnsAll)
-            val peerBuilder = Peer.Builder()
-                .setPublicKey(Key.fromBase64(serverKey))
-                .setEndpoint(InetEndpoint.parse("$endpoint:$serverPort"))
-            for (cidr in WireGuard.allowedIpCidrs(allowLan)) {
-                peerBuilder.addAllowedIp(InetNetwork.parse(cidr))
+            var useV6Identity = true
+            activeV6Identity = true
+            val config = try {
+                buildConfig(
+                    "$peerIp/32, $TUN_IPV6_ADDRESS/128",
+                    dnsServersCsv, serverKey, endpoint, serverPort, allowLan,
+                )
+            } catch (error: Exception) {
+                useV6Identity = false
+                activeV6Identity = false
+                buildConfig(
+                    "$peerIp/32",
+                    dnsServersCsv, serverKey, endpoint, serverPort, allowLan,
+                )
             }
-            val config = Config.Builder()
-                .setInterface(ifaceBuilder.build())
-                .addPeer(peerBuilder.build())
-                .build()
-            activeBackend.setState(activeTunnel, Tunnel.State.UP, config)
+            try {
+                activeBackend.setState(activeTunnel, Tunnel.State.UP, config)
+            } catch (error: Exception) {
+                if (useV6Identity && error.message?.contains("address", true) == true) {
+                    useV6Identity = false
+                    activeV6Identity = false
+                    val v4 = buildConfig(
+                        "$peerIp/32",
+                        dnsServersCsv, serverKey, endpoint, serverPort, allowLan,
+                    )
+                    activeBackend.setState(activeTunnel, Tunnel.State.UP, v4)
+                } else {
+                    throw error
+                }
+            }
             // The tunnel is up, but that proves nothing about traffic: some
             // networks blackhole UDP or DNS. Give WireGuard up to ~10s to
             // complete its first handshake (rx>0) BEFORE any TCP runs: probing
@@ -552,7 +608,7 @@ class PiaVpnService : VpnService() {
             }
             backend = null
             tunnel = null
-            val reason = error.message ?: error.javaClass.simpleName
+            val reason = error.javaClass.simpleName + ": " + (error.message ?: "?")
             writeState(false, serverId, reason)
             postAlert("AIP VPN tunnel down", "Disconnected: $reason")
             stopSelf()
@@ -772,6 +828,11 @@ class PiaVpnService : VpnService() {
             .putString(STATE_LAST_ERROR, lastError)
             .putLong(STATE_ALIVE_AT, System.currentTimeMillis())
             .apply()
+        if (lastError != null) {
+            getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+                .putLong(STATE_ERROR_AT, System.currentTimeMillis())
+                .apply()
+        }
     }
 
     private fun writeAlive() {

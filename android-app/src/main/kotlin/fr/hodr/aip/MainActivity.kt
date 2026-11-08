@@ -577,14 +577,20 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun readLastError(): String? =
-        getSharedPreferences(PREFS_STATE, MODE_PRIVATE).getString(KEY_LAST_ERROR, null)
+    private fun readLastError(): String? {
+        val prefs = getSharedPreferences(PREFS_STATE, MODE_PRIVATE)
+        val err = prefs.getString(KEY_LAST_ERROR, null) ?: return null
+        val at = prefs.getLong(KEY_ERROR_AT, 0L)
+        if (at > 0 && System.currentTimeMillis() - at > 180_000) return null
+        return err
+    }
 
     private fun writeVpnState(connected: Boolean, serverId: String?) {
         getSharedPreferences(PREFS_STATE, MODE_PRIVATE).edit()
             .putBoolean(KEY_CONNECTED, connected)
             .putString(KEY_SERVER_ID, serverId)
             .remove(KEY_LAST_ERROR)
+            .remove(KEY_ERROR_AT)
             .apply()
     }
 
@@ -654,6 +660,7 @@ class MainActivity : Activity() {
         private const val KEY_CONNECTED = "connected"
         private const val KEY_SERVER_ID = "serverId"
         private const val KEY_LAST_ERROR = "lastError"
+        private const val KEY_ERROR_AT = "errorAt"
         private const val KEY_ALIVE_AT = "aliveAt"
 
         private const val PREFS_UI = "pia-prefs"
