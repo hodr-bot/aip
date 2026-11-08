@@ -247,6 +247,16 @@ class PiaVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
+    override fun onRevoke() {
+        // Another app took the VPN slot (single TUN on Android): our
+        // tunnel is dead. Tear down honestly, never fake "connected".
+        clearAlert()
+        bringDown()
+        writeState(false, null, null)
+        stopSelf()
+        super.onRevoke()
+    }
+
     override fun onDestroy() {
         try {
             netCallback?.let { cb ->
@@ -497,6 +507,14 @@ class PiaVpnService : VpnService() {
             return
         }
         parkedForNoNetwork = false
+        if (otherVpnActive()) {
+            connecting = false
+            val msg = "Un autre VPN est actif — un seul à la fois : coupe-le puis réessaie"
+            writeState(false, serverId, msg)
+            postAlert("AIP VPN : conflit VPN", msg)
+            stopSelf()
+            return
+        }
         activeServerId = serverId
         activeServerName = serverName
         activeAllowLan = allowLan
@@ -608,7 +626,12 @@ class PiaVpnService : VpnService() {
             }
             backend = null
             tunnel = null
-            val reason = error.javaClass.simpleName + ": " + (error.message ?: "?")
+            val rawMsg = error.message ?: "?"
+            val reason = if (rawMsg.contains("address", true)) {
+                "Connexion refusée même sans IPv6 ($rawMsg) — un autre VPN est probablement actif : coupe-le puis réessaie"
+            } else {
+                error.javaClass.simpleName + ": " + rawMsg
+            }
             writeState(false, serverId, reason)
             postAlert("AIP VPN tunnel down", "Disconnected: $reason")
             stopSelf()
@@ -819,6 +842,18 @@ class PiaVpnService : VpnService() {
         parkedForNoNetwork = true
         writeState(false, server, "En pause — pas de réseau")
         goForeground()
+    }
+
+    /** Another app's VPN (never ours): Android allows one TUN at a time. */
+    private fun otherVpnActive(): Boolean {
+        if (tunnel != null || backend != null) return false
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val networks = try { cm.allNetworks } catch (error: Exception) { return false }
+        for (net in networks) {
+            val caps = try { cm.getNetworkCapabilities(net) } catch (error: Exception) { null } ?: continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return true
+        }
+        return false
     }
 
     private fun writeState(connected: Boolean, serverId: String?, lastError: String?) {
