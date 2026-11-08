@@ -390,6 +390,17 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Any active VPN network: on the launch path ours cannot be up. */
+    private fun hasOtherVpn(): Boolean {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val networks = try { cm.allNetworks } catch (error: Exception) { return false }
+        for (net in networks) {
+            val caps = try { cm.getNetworkCapabilities(net) } catch (error: Exception) { null } ?: continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return true
+        }
+        return false
+    }
+
     /** Underlying link only (same rule as the service): VPN excluded. */
     private fun hasUsableNetwork(): Boolean {
         val cm = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
@@ -417,7 +428,16 @@ class MainActivity : Activity() {
         if (!hasUsableNetwork()) {
             setConnecting(false)
             connectStatus.text = "No network — paused"
-            android.widget.Toast.makeText(this, "Pas de réseau — reprise auto dès retour", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(this, "No network — auto-resume when back", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        // Another app holds the VPN slot: fail fast with guidance instead
+        // of a doomed establish that ends in "cannot set address".
+        if (hasOtherVpn()) {
+            setConnecting(false)
+            connectStatus.text = "VPN conflict"
+            errorDetail.text = "Another VPN is active — only one at a time: turn it off and retry"
+            android.widget.Toast.makeText(this, "Another VPN is active — turn it off and retry", android.widget.Toast.LENGTH_LONG).show()
             return
         }
         // Resolve the probe host NOW on the plain network, before the tunnel
@@ -498,7 +518,7 @@ class MainActivity : Activity() {
         val (stored, serverId, aliveAt) = readVpnState()
         // The service heartbeats every 5s. A "connected" flag with a stale
         // heartbeat means the process died without cleanup: say so honestly
-        // instead of showing a fake "Connecté".
+        // instead of showing a fake "Connected".
         val connected = stored && (System.currentTimeMillis() - aliveAt < PiaVpnService.ALIVE_FRESH_MS)
         val current = selected
         val connectedTitle = serverId?.let { id ->

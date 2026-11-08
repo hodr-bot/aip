@@ -249,10 +249,11 @@ class PiaVpnService : VpnService() {
 
     override fun onRevoke() {
         // Another app took the VPN slot (single TUN on Android): our
-        // tunnel is dead. Tear down honestly, never fake "connected".
-        clearAlert()
+        // tunnel is dead. Say so loudly, never fake "connected".
         bringDown()
-        writeState(false, null, null)
+        val msg = "Another VPN took over — ours is down"
+        writeState(false, null, msg)
+        postAlert("AIP VPN: VPN revoked", msg)
         stopSelf()
         super.onRevoke()
     }
@@ -314,14 +315,14 @@ class PiaVpnService : VpnService() {
     private fun buildStatusNotification(txBytes: Long, rxBytes: Long): Notification {
         val server = activeServerName.ifEmpty { activeServerId ?: "…" }
         val counters = "▲ ${fmtBytes(txBytes)} · ▼ ${fmtBytes(rxBytes)}"
-        val lan = if (activeAllowLan) "LAN direct" else "LAN via tunnel"
+        val lan = if (activeAllowLan) "LAN bypass" else "LAN via tunnel"
         if (parkedForNoNetwork && backend == null) {
             return Notification.Builder(this, SILENT_CHANNEL_ID)
-                .setContentTitle("AIP VPN · en pause")
-                .setContentText("pas de réseau — reprise automatique")
+                .setContentTitle("AIP VPN · paused")
+                .setContentText("no network — auto-resume")
                 .setStyle(
                     Notification.BigTextStyle()
-                        .bigText("Serveur : $server\nÉtat : en pause (pas de réseau)\nReprise automatique dès le retour du réseau."),
+                        .bigText("Server: $server\nState: paused (no network)\nAuto-resume when the network returns."),
                 )
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
                 .setContentIntent(openAppIntent())
@@ -329,23 +330,23 @@ class PiaVpnService : VpnService() {
                 .setOnlyAlertOnce(true)
                 .build()
         }
-        val link = if (!linkUsable) " · réseau perdu — en pause" else ""
-        val netLine = if (!linkUsable) "\nRéseau : perdu — en pause (reprise auto)" else ""
-        val v6line = "\nIPv6 : " + if (activeV6Identity) "bloqué via TUN" else "repli v4 (fuite possible)"
+        val link = if (!linkUsable) " · network lost — paused" else ""
+        val netLine = if (!linkUsable) "\nNetwork: lost — paused (auto-resume)" else ""
+        val v6line = "\nIPv6: " + if (activeV6Identity) "blocked via TUN" else "v4 fallback (may leak)"
         val title = "AIP VPN · $server"
         val detail = if (trafficStalled) {
-            "$counters · reconnexion…$link"
+            "$counters · reconnecting…$link"
         } else if (connectedSinceMs > 0L) {
             "$counters · ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}$link"
         } else {
-            "$counters · connexion…$link"
+            "$counters · connecting…$link"
         }
         return Notification.Builder(this, SILENT_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(detail)
             .setStyle(
                 Notification.BigTextStyle()
-                    .bigText("Serveur : $server\nTrafic : $counters\nSession : ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}\n$lan$netLine$v6line"),
+                    .bigText("Server: $server\nTraffic: $counters\nSession: ${fmtDuration(System.currentTimeMillis() - connectedSinceMs)}\n$lan$netLine$v6line"),
             )
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openAppIntent())
@@ -509,9 +510,9 @@ class PiaVpnService : VpnService() {
         parkedForNoNetwork = false
         if (otherVpnActive()) {
             connecting = false
-            val msg = "Un autre VPN est actif — un seul à la fois : coupe-le puis réessaie"
+            val msg = "Another VPN is active — only one at a time: turn it off and retry"
             writeState(false, serverId, msg)
-            postAlert("AIP VPN : conflit VPN", msg)
+            postAlert("AIP VPN: VPN conflict", msg)
             stopSelf()
             return
         }
@@ -628,7 +629,7 @@ class PiaVpnService : VpnService() {
             tunnel = null
             val rawMsg = error.message ?: "?"
             val reason = if (rawMsg.contains("address", true)) {
-                "Connexion refusée même sans IPv6 ($rawMsg) — un autre VPN est probablement actif : coupe-le puis réessaie"
+                "Connection refused even without IPv6 ($rawMsg) — another VPN is probably active: turn it off and retry"
             } else {
                 error.javaClass.simpleName + ": " + rawMsg
             }
@@ -840,7 +841,7 @@ class PiaVpnService : VpnService() {
         val server = activeServerId
         bringDown()
         parkedForNoNetwork = true
-        writeState(false, server, "En pause — pas de réseau")
+        writeState(false, server, "Paused — no network")
         goForeground()
     }
 
@@ -914,7 +915,7 @@ class PiaVpnService : VpnService() {
                         if (linkLostAt > 0 && SystemClock.elapsedRealtime() - linkLostAt > 60_000) {
                             bringDown()
                             parkedForNoNetwork = true
-                            writeState(false, watchedServer, "En pause — pas de réseau")
+                            writeState(false, watchedServer, "Paused — no network")
                             goForeground()
                         }
                     } else if (now - lastVerify >= 60_000 || forceVerify) {
