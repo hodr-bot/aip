@@ -251,7 +251,7 @@ class PiaVpnService : VpnService() {
         // Another app took the VPN slot (single TUN on Android): our
         // tunnel is dead. Say so loudly, never fake "connected".
         bringDown()
-        val msg = "Another VPN took over, ours is down."
+        val msg = "Another VPN took over."
         writeState(false, null, msg)
         postAlert("AIP VPN: VPN revoked", msg)
         stopSelf()
