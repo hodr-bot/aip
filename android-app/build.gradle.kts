@@ -3,6 +3,8 @@ plugins {
     kotlin("android")
 }
 
+val appVersionName = "1.35"
+
 repositories {
     google()
     mavenCentral()
@@ -17,7 +19,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 36
-        versionName = "1.35"
+        versionName = appVersionName
     }
 
     splits {
@@ -35,6 +37,16 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    // File name carries the real version: aip-vpn-<version>-<abi>.apk
+    // instead of the module/split/build-type word salad.
+    applicationVariants.all {
+        outputs.all {
+            val abi = filters.firstOrNull { it.filterType == "ABI" }?.identifier ?: "universal"
+            (this as com.android.build.gradle.api.ApkVariantOutput).outputFileName =
+                "aip-vpn-$appVersionName-$abi.apk"
+        }
     }
 }
 
