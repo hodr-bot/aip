@@ -427,8 +427,8 @@ class MainActivity : Activity() {
         // service — it would park at once. Tell the user, stay quiet.
         if (!hasUsableNetwork()) {
             setConnecting(false)
-            connectStatus.text = "No network — paused"
-            android.widget.Toast.makeText(this, "No network — auto-resume when back", android.widget.Toast.LENGTH_LONG).show()
+            connectStatus.text = "No network. Paused"
+            android.widget.Toast.makeText(this, "No network. Auto-resume when back.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
         // Another app holds the VPN slot: fail fast with guidance instead
@@ -436,8 +436,8 @@ class MainActivity : Activity() {
         if (hasOtherVpn()) {
             setConnecting(false)
             connectStatus.text = "VPN conflict"
-            errorDetail.text = "Another VPN is active — only one at a time: turn it off and retry"
-            android.widget.Toast.makeText(this, "Another VPN is active — turn it off and retry", android.widget.Toast.LENGTH_LONG).show()
+            errorDetail.text = "Another VPN is active. Only one at a time. Turn it off and retry."
+            android.widget.Toast.makeText(this, "Another VPN is active. Turn it off and retry.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
         // Resolve the probe host NOW on the plain network, before the tunnel
@@ -556,7 +556,7 @@ class MainActivity : Activity() {
             else -> {
                 if (!connecting) {
                     connectStatus.text = "Connected"
-                    errorDetail.text = "$connectedTitle (other server picked — tap to switch)"
+                    errorDetail.text = "$connectedTitle (other server picked. Tap to switch)"
                 } else {
                     connectStatus.text = "Connecting…"
                     errorDetail.text = ""
