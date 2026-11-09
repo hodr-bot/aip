@@ -71,6 +71,7 @@ class MainActivity : Activity() {
 
     @Volatile
     private var pendingServer: ServerEntry? = null
+    private var pendingFromCache: Boolean = false
 
     private var stateListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
@@ -239,7 +240,7 @@ class MainActivity : Activity() {
                             notifyAlert("Connect failed", message)
                             return@Thread
                         }
-                        runOnUiThread { launchAfterPermission(cached, entry) }
+                        runOnUiThread { launchAfterPermission(cached, entry, true) }
                         return@Thread
                     }
                     val remainingHours = token.remainingSec(clock.nowEpochSec()) / 3600
@@ -253,7 +254,10 @@ class MainActivity : Activity() {
                         client.addKey(entry.hostname, token, publicKey)
                     } catch (addError: Exception) {
                         if (addError is pia.core.PiaApiError) throw addError
-                        cachedLeaseResult(entry) ?: throw addError
+                        cachedLeaseResult(entry)?.let {
+                            runOnUiThread { launchAfterPermission(it, entry, true) }
+                            return@Thread
+                        } ?: throw addError
                     }
                     val split = splitEndpoint(result.lease.endpoint)
                     if (split != null) {
@@ -283,9 +287,10 @@ class MainActivity : Activity() {
     }
 
     /** VPN permission gate shared by the fresh and cached lease paths. */
-    private fun launchAfterPermission(result: pia.core.LeaseResult, entry: ServerEntry) {
+    private fun launchAfterPermission(result: pia.core.LeaseResult, entry: ServerEntry, fromCache: Boolean = false) {
         pendingLease = result
         pendingServer = entry
+        pendingFromCache = fromCache
         tokenStore.saveLastHost(entry.hostname)
         tokenStore.saveLastServerId(entry.id)
         val prepareIntent = VpnService.prepare(this)
@@ -293,7 +298,18 @@ class MainActivity : Activity() {
             connectStatus.text = "Waiting for VPN permission..."
             startActivityForResult(prepareIntent, REQUEST_VPN_PERMISSION)
         } else {
-            launchVpn(result, entry)
+            launchVpn(result, entry, fromCache)
+        }
+    }
+
+    /** Literal IP needs no DNS: safe to dial with the link down (lockdown). */
+    private fun isLiteralIp(host: String): Boolean {
+        if (host.contains(':')) return true
+        if (!host.matches(Regex("[0-9.]+"))) return false
+        return try {
+            java.net.InetAddress.getByName(host).hostAddress == host
+        } catch (error: Exception) {
+            false
         }
     }
 
@@ -464,7 +480,7 @@ class MainActivity : Activity() {
                     connectStatus.text = "No pending lease"
                     return
                 }
-                launchVpn(lease, server)
+                launchVpn(lease, server, pendingFromCache)
             }
         }
     }
@@ -492,7 +508,7 @@ class MainActivity : Activity() {
         return false
     }
 
-    private fun launchVpn(result: LeaseResult, server: ServerEntry) {
+    private fun launchVpn(result: LeaseResult, server: ServerEntry, fromCache: Boolean = false) {
         val split = splitEndpoint(result.lease.endpoint)
         if (split == null) {
             setConnecting(false)
@@ -502,9 +518,10 @@ class MainActivity : Activity() {
         }
         val (host, port) = split
         val allowLan = allowLanBox.isChecked
-        // No usable link (airplane mode, dead wifi): do not even start the
-        // service — it would park at once. Tell the user, stay quiet.
-        if (!hasUsableNetwork()) {
+        // No usable link (airplane mode, dead wifi, lockdown): a fresh lease
+        // cannot even start. A cached lease to a literal IP carries its own
+        // path, no DNS needed, so let the tunnel try.
+        if (!hasUsableNetwork() && !(fromCache && isLiteralIp(host))) {
             setConnecting(false)
             connectStatus.text = "No network, paused"
             android.widget.Toast.makeText(this, "No network, auto-resume when back.", android.widget.Toast.LENGTH_LONG).show()

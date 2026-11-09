@@ -3,7 +3,7 @@ plugins {
     kotlin("android")
 }
 
-val appVersionName = "1.35"
+val appVersionName = "1.36"
 
 repositories {
     google()

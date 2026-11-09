@@ -369,12 +369,12 @@ class PiaVpnService : VpnService() {
     }
 
     private fun fmtBytes(bytes: Long): String {
-        if (bytes < 1024) return "$bytes o"
+        if (bytes < 1024) return "$bytes B"
         val kb = bytes / 1024.0
-        if (kb < 1024) return String.format(java.util.Locale.FRENCH, "%.1f Ko", kb)
+        if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb)
         val mb = kb / 1024.0
-        if (mb < 1024) return String.format(java.util.Locale.FRENCH, "%.1f Mo", mb)
-        return String.format(java.util.Locale.FRENCH, "%.2f Go", mb / 1024.0)
+        if (mb < 1024) return String.format(java.util.Locale.US, "%.1f MB", mb)
+        return String.format(java.util.Locale.US, "%.2f GB", mb / 1024.0)
     }
 
     private fun fmtDuration(ms: Long): String {
@@ -411,17 +411,27 @@ class PiaVpnService : VpnService() {
             return
         }
         lastAllowLan = intentAllowLan
-        // Boot/Always-on restart with no link: park, do not burn attempts.
-        if (!linkUsableNow()) {
-            parkForNoNetwork()
-            return
-        }
         // A restart intent carries no checkbox: the persisted UI preference is
         // the truth. Otherwise a reboot silently drops the LAN bypass.
         val allowLan = try {
             getSharedPreferences("pia-prefs", MODE_PRIVATE).getBoolean("allowLan", intentAllowLan)
         } catch (ignored: Exception) {
             intentAllowLan
+        }
+        // Link down: a cached IP lease still dials (lockdown, tunnel carries
+        // its own path, no DNS needed). Anything else parks silently.
+        if (!linkUsableNow()) {
+            val cached = OfflineCache(this).loadLease(store.loadLastServerId())
+            if (cached != null && isLiteralIp(cached.endpointHost)) {
+                bringUp(
+                    cached.peerIp, cached.endpointHost, cached.endpointPort,
+                    cached.serverKey, cached.dnsCsv.ifEmpty { FALLBACK_DNS },
+                    allowLan, store.loadLastServerId(), probeIps = cached.probeIpsCsv,
+                )
+            } else {
+                parkForNoNetwork()
+            }
+            return
         }
         try {
             val client = PiaClient(HttpUrlConnectionPort(), SystemClock())
@@ -511,9 +521,10 @@ class PiaVpnService : VpnService() {
         if (connecting && SystemClock.elapsedRealtime() - connectingSince < 90_000) return
         connecting = true
         connectingSince = SystemClock.elapsedRealtime()
-        // No link, no attempt: handshake sleeps and TCP timeouts would burn
-        // radio for nothing. Park silently; the callback resumes us.
-        if (!linkUsableNow()) {
+        // No link, no attempt unless the endpoint is a literal IP: a cached
+        // IP lease carries its own path (lockdown), no DNS needed. Anything
+        // else would burn radio on doomed DNS.
+        if (!linkUsableNow() && !isLiteralIp(endpoint)) {
             connecting = false
             parkForNoNetwork()
             return
@@ -794,6 +805,17 @@ class PiaVpnService : VpnService() {
     private fun linkUsableNow(): Boolean = underlyingLink().first
 
     private fun linkValidatedNow(): Boolean = underlyingLink().second
+
+    /** Literal IP needs no DNS: safe to dial with the link down (lockdown). */
+    private fun isLiteralIp(host: String): Boolean {
+        if (host.contains(':')) return true
+        if (!host.matches(Regex("[0-9.]+"))) return false
+        return try {
+            java.net.InetAddress.getByName(host).hostAddress == host
+        } catch (error: Exception) {
+            false
+        }
+    }
 
     /** Park instead of alerting when the link itself is the problem. */
     private fun shouldParkInstead(): Boolean = !linkUsableNow() || !linkValidatedNow()
