@@ -63,10 +63,25 @@ class PiaVpnService : VpnService() {
         private const val STATE_LAST_ERROR = "lastError"
         private const val STATE_ERROR_AT = "errorAt"
         private const val STATE_ALIVE_AT = "aliveAt"
+        private const val STATE_USER_STOPPED = "userStopped"
+        private const val STATE_GIVE_UP_AT = "giveUpAt"
 
         /** Freshness window: the service heartbeats every 5s. */
         const val ALIVE_FRESH_MS = 20_000L
         const val FALLBACK_DNS = "10.0.0.243"
+
+        /**
+         * Failed minute-proofs before stall recovery re-dials: about 3 min
+         * of dead traffic while the tunnel object is up.
+         */
+        private const val STALL_REDIAL_AFTER = 3
+
+        /**
+         * After recovery gives up on every cached server, auto-restarts
+         * (Always-on, boot, link flap) stay down this long. A user tap on
+         * CONNECT always retries at once.
+         */
+        private const val GIVE_UP_COOLDOWN_MS = 10 * 60_000L
 
         /**
          * ULA address giving the TUN interface an IPv6 identity. PIA is
@@ -177,6 +192,30 @@ class PiaVpnService : VpnService() {
     @Volatile
     private var connectingSince = 0L
 
+    /**
+     * Set by ACTION_DISCONNECT. A disconnect must win over everything:
+     * in-flight handshakes, stall recovery, auto-restarts. Cleared only by
+     * a user tap on CONNECT (lease-carrying intent).
+     */
+    @Volatile
+    private var stopRequested = false
+
+    /** Consecutive failed minute-proofs while the tunnel object is up. */
+    @Volatile
+    private var stallFails = 0
+
+    /** Stall recovery (re-dial + rotation) already running. */
+    @Volatile
+    private var recovering = false
+
+    // Last dial parameters, stashed by bringUp so stall recovery can re-dial
+    // without any network (kill switch blocks everything pre-tunnel).
+    private var lastPeerIp = ""
+    private var lastEndpoint = ""
+    private var lastEndpointPort = 0
+    private var lastServerKey = ""
+    private var lastDnsCsv = ""
+
     /** Set by the link callback: the watchdog re-proves traffic at once. */
     @Volatile
     private var forceVerify = false
@@ -213,6 +252,11 @@ class PiaVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_DISCONNECT) {
+            // The user said stop: persist it BEFORE tearing down so an
+            // Always-on auto-restart racing this intent still sees it.
+            stopRequested = true
+            setUserStopped(true)
+            connecting = false
             clearAlert()
             val lastServer = activeServerId
             bringDown()
@@ -235,11 +279,21 @@ class PiaVpnService : VpnService() {
             serverKey.isNullOrEmpty() || serverPort <= 0 || serverPort > 65535
         ) {
             // No lease in the intent (boot with Always-on, system restart):
-            // rebuild it from the stored account and last server.
+            // rebuild it from the stored account and last server. A user
+            // stop or a fresh give-up survives the restart: stay down.
+            if (isUserStopped() || giveUpActive()) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
             goForeground()
             Thread { restoreLease(allowLan) }.start()
             return START_STICKY
         }
+        // Full lease in the intent: a user tap on CONNECT. It clears any
+        // previous stop and any recovery cooldown.
+        stopRequested = false
+        setUserStopped(false)
+        clearGiveUp()
         goForeground()
         Thread {
             bringUp(peerIp, endpoint, serverPort, serverKey, dnsServersCsv, allowLan, serverId, serverName, probeIps)
@@ -404,6 +458,12 @@ class PiaVpnService : VpnService() {
      * and a fresh addKey lease. Stops the service when nothing stored.
      */
     private fun restoreLease(intentAllowLan: Boolean) {
+        // Auto-restart path (boot, Always-on, link flap): a user stop or a
+        // fresh give-up stays down. Only a CONNECT tap dials again.
+        if (isUserStopped() || giveUpActive()) {
+            stopSelf()
+            return
+        }
         val store = PrefsTokenStore(this)
         val hostname = store.loadLastHost()
         if (hostname.isNullOrEmpty() || store.loadUsername() == null) {
@@ -470,6 +530,23 @@ class PiaVpnService : VpnService() {
             postAlert("AIP VPN tunnel down", "Restore failed: ${error.javaClass.simpleName}: ${error.message ?: "?"}")
             stopSelf()
         }
+    }
+
+    /**
+     * A DISCONNECT landed mid-dial: tear the half-built tunnel down and
+     * report nothing. The disconnect already wrote the UI state.
+     */
+    private fun abortIfStopped(activeBackend: GoBackend, activeTunnel: PiaTunnel): Boolean {
+        if (!stopRequested && !isUserStopped()) return false
+        connecting = false
+        try {
+            activeBackend.setState(activeTunnel, Tunnel.State.DOWN, null)
+        } catch (ignored: Exception) {
+            // Best-effort teardown; nothing secret to report.
+        }
+        backend = null
+        tunnel = null
+        return true
     }
 
     /**
@@ -542,6 +619,11 @@ class PiaVpnService : VpnService() {
         activeServerName = serverName
         activeAllowLan = allowLan
         probeIpsCsv = probeIps
+        lastPeerIp = peerIp
+        lastEndpoint = endpoint
+        lastEndpointPort = serverPort
+        lastServerKey = serverKey
+        lastDnsCsv = dnsServersCsv
         val activeTunnel = PiaTunnel(TUNNEL_NAME)
         val activeBackend = GoBackend(this)
         tunnel = activeTunnel
@@ -577,6 +659,9 @@ class PiaVpnService : VpnService() {
                     throw error
                 }
             }
+            // A DISCONNECT landed mid-dial: drop the half-built tunnel, the
+            // disconnect already wrote the UI state.
+            if (abortIfStopped(activeBackend, activeTunnel)) return
             // The tunnel is up, but that proves nothing about traffic: some
             // networks blackhole UDP or DNS. Give WireGuard up to ~10s to
             // complete its first handshake (rx>0) BEFORE any TCP runs: probing
@@ -606,10 +691,15 @@ class PiaVpnService : VpnService() {
                 return
             }
             val (flows, trace) = verifyTraffic()
+            // Late DISCONNECT (during handshake or verify): drop everything,
+            // report nothing, the disconnect owns the UI state now.
+            if (abortIfStopped(activeBackend, activeTunnel)) return
             if (flows) {
                 trafficStalled = false
+                stallFails = 0
                 connecting = false
                 connectedSinceMs = System.currentTimeMillis()
+                clearGiveUp()
                 writeState(true, serverId, null)
                 clearAlert()
                 refreshStatus()
@@ -859,6 +949,9 @@ class PiaVpnService : VpnService() {
             return
         }
         if (parkedForNoNetwork && !connecting && (!wasUsable || !wasValidated)) {
+            // A user stop or a fresh give-up stays down even when the link
+            // flaps. Only a CONNECT tap dials again.
+            if (isUserStopped() || giveUpActive()) return
             parkedForNoNetwork = false
             val resumeAllowLan = lastAllowLan
             Thread { restoreLease(resumeAllowLan) }.start()
@@ -875,6 +968,9 @@ class PiaVpnService : VpnService() {
         val server = activeServerId
         bringDown()
         parkedForNoNetwork = true
+        // A new link is a new chance: a recovery cooldown must not block
+        // the resume that follows.
+        clearGiveUp()
         writeState(false, server, "Paused, no network")
         goForeground()
     }
@@ -889,6 +985,31 @@ class PiaVpnService : VpnService() {
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return true
         }
         return false
+    }
+
+    /** A user tap on DISCONNECT persists across auto-restarts. */
+    private fun isUserStopped(): Boolean =
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).getBoolean(STATE_USER_STOPPED, false)
+
+    private fun setUserStopped(stopped: Boolean) {
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+            .putBoolean(STATE_USER_STOPPED, stopped).apply()
+    }
+
+    /** Recovery gave up recently: auto-restarts back off, user taps do not. */
+    private fun giveUpActive(): Boolean {
+        val at = getSharedPreferences(STATE_PREFS, MODE_PRIVATE).getLong(STATE_GIVE_UP_AT, 0L)
+        return at > 0 && System.currentTimeMillis() - at < GIVE_UP_COOLDOWN_MS
+    }
+
+    private fun persistGiveUp() {
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+            .putLong(STATE_GIVE_UP_AT, System.currentTimeMillis()).apply()
+    }
+
+    private fun clearGiveUp() {
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+            .remove(STATE_GIVE_UP_AT).apply()
     }
 
     private fun writeState(connected: Boolean, serverId: String?, lastError: String?) {
@@ -1020,18 +1141,35 @@ class PiaVpnService : VpnService() {
                         if (!verifyTraffic().first) {
                             if (!trafficStalled) {
                                 trafficStalled = true
+                                stallFails = 1
                                 writeState(
                                     true,
                                     watchedServer,
-                                    "traffic stalled, WireGuard recovering",
+                                    "traffic stalled, redialing",
                                 )
                                 postAlert(
                                     "AIP VPN tunnel stalled",
-                                    "Traffic stalled, WireGuard recovering on its own",
+                                    "Traffic stalled, redialing",
                                 )
+                            } else {
+                                stallFails++
+                                writeState(
+                                    true,
+                                    watchedServer,
+                                    "traffic stalled, redialing",
+                                )
+                                // About 3 min of dead traffic on a live
+                                // tunnel object: WireGuard will not fix this
+                                // on its own, re-dial (same server, then
+                                // other cached servers) instead of hoping.
+                                if (stallFails >= STALL_REDIAL_AFTER && !recovering && !connecting) {
+                                    recoverTunnel()
+                                    return@Thread
+                                }
                             }
                         } else if (trafficStalled) {
                             trafficStalled = false
+                            stallFails = 0
                             writeState(true, watchedServer, null)
                             clearAlert()
                         }
@@ -1049,6 +1187,87 @@ class PiaVpnService : VpnService() {
     private fun stopMonitor() {
         monitor?.interrupt()
         monitor = null
+    }
+
+    /**
+     * The tunnel object is up but no traffic flows for minutes: re-dial the
+     * same server (fresh session fixes transient blackholes), then rotate
+     * over other cached servers (newest first). Runs on the monitor thread;
+     * bringUp starts the next monitor, this thread exits after handing off.
+     * When nothing cached answers, say so honestly and back off: the user
+     * taps CONNECT to retry, auto-restarts stay down for a cooldown.
+     */
+    private fun recoverTunnel() {
+        if (recovering) return
+        recovering = true
+        // Clear any self-interrupt from bringDown: this thread keeps working.
+        Thread.interrupted()
+        try {
+            persistGiveUp()
+            val stalledServer = activeServerId
+            val stalledName = activeServerName
+            if (!stopRequested && !isUserStopped() && tryRedial(
+                    lastPeerIp, lastEndpoint, lastEndpointPort, lastServerKey,
+                    lastDnsCsv, lastAllowLan, stalledServer, stalledName, probeIpsCsv,
+                )
+            ) {
+                return
+            }
+            if (parkedForNoNetwork || stopRequested || isUserStopped()) return
+            val others = try {
+                OfflineCache(this).allLeases()
+            } catch (error: Exception) {
+                emptyMap()
+            }.filterKeys { it != stalledServer }
+                .entries.sortedByDescending { it.value.savedAtMs }
+            for ((id, lease) in others) {
+                if (stopRequested || isUserStopped()) return
+                if (tryRedial(
+                        lease.peerIp, lease.endpointHost, lease.endpointPort,
+                        lease.serverKey, lease.dnsCsv.ifEmpty { FALLBACK_DNS },
+                        lastAllowLan, id, "", lease.probeIpsCsv,
+                    )
+                ) {
+                    return
+                }
+                if (parkedForNoNetwork || stopRequested || isUserStopped()) return
+            }
+            giveUp(stalledServer)
+        } finally {
+            recovering = false
+        }
+    }
+
+    /** One re-dial attempt with fixed parameters, no network needed. */
+    private fun tryRedial(
+        peerIp: String,
+        endpoint: String,
+        port: Int,
+        key: String,
+        dnsCsv: String,
+        allowLan: Boolean,
+        serverId: String?,
+        serverName: String,
+        probes: String,
+    ): Boolean {
+        if (peerIp.isEmpty() || endpoint.isEmpty() || key.isEmpty() || port <= 0) return false
+        bringDown()
+        // Clear the self-interrupt so the dial below sleeps normally.
+        Thread.interrupted()
+        if (stopRequested || isUserStopped()) return false
+        SystemClock.sleep(1500)
+        if (stopRequested || isUserStopped()) return false
+        bringUp(peerIp, endpoint, port, key, dnsCsv, allowLan, serverId, serverName, probes)
+        return backend != null && tunnel != null && !trafficStalled && !parkedForNoNetwork
+    }
+
+    /** Nothing cached answers: honest state, one alert, back off. */
+    private fun giveUp(serverId: String?) {
+        bringDown()
+        val msg = "Server unreachable, tap CONNECT to retry"
+        writeState(false, serverId, msg)
+        postAlert("AIP VPN tunnel down", "Disconnected: $msg")
+        stopSelf()
     }
 
     private fun failTraffic(

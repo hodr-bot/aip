@@ -556,6 +556,10 @@ class MainActivity : Activity() {
             android.widget.Toast.makeText(this, "Another VPN is active, disable it first.", android.widget.Toast.LENGTH_LONG).show()
             return
         }
+        // A user CONNECT tap overrides any previous stop or cooldown, even
+        // before the service intent is processed.
+        getSharedPreferences(PREFS_STATE, MODE_PRIVATE).edit()
+            .putBoolean(KEY_USER_STOPPED, false).remove(KEY_GIVE_UP_AT).apply()
         // Resolve the probe host NOW on the plain network, before the tunnel
         // claims DNS. These IPs ride inside the tunnel (TCP+TLS with SNI),
         // so a dead tunnel-DNS can no longer fake a dead tunnel. This is the
@@ -704,6 +708,10 @@ class MainActivity : Activity() {
         val intent = Intent(this, PiaVpnService::class.java).apply {
             action = PiaVpnService.ACTION_DISCONNECT
         }
+        // Persist the stop first: an Always-on auto-restart racing the
+        // intent must see it and stay down.
+        getSharedPreferences(PREFS_STATE, MODE_PRIVATE).edit()
+            .putBoolean(KEY_USER_STOPPED, true).apply()
         startService(intent)
         pendingLease = null
         pendingServer = null
@@ -811,6 +819,8 @@ class MainActivity : Activity() {
         private const val KEY_LAST_ERROR = "lastError"
         private const val KEY_ERROR_AT = "errorAt"
         private const val KEY_ALIVE_AT = "aliveAt"
+        private const val KEY_USER_STOPPED = "userStopped"
+        private const val KEY_GIVE_UP_AT = "giveUpAt"
 
         private const val PREFS_UI = "pia-prefs"
         private const val KEY_ALLOW_LAN = "allowLan"

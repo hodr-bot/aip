@@ -52,6 +52,17 @@ class OfflineCache(context: Context) {
         return raw to prefs.getLong(KEY_SERVER_LIST_AT, 0L)
     }
 
+    /** Every cached lease by server id, for stall rotation. */
+    fun allLeases(): Map<String, CachedLease> {
+        val out = LinkedHashMap<String, CachedLease>()
+        for ((key, value) in prefs.all) {
+            if (!key.startsWith(LEASE_PREFIX)) continue
+            val lease = (value as? String)?.let { decode(it) } ?: continue
+            out[key.removePrefix(LEASE_PREFIX)] = lease
+        }
+        return out
+    }
+
     private fun encode(lease: CachedLease): String = listOf(
         lease.hostname,
         lease.peerIp,
