@@ -193,6 +193,14 @@ class PiaVpnService : VpnService() {
     private var connectingSince = 0L
 
     /**
+     * Bumped on every user CONNECT tap. A dial captures the value at start;
+     * a mismatch at any later boundary means a newer tap took over: abort
+     * quietly so the old attempt never resurrects over the new one.
+     */
+    @Volatile
+    private var dialGeneration = 0
+
+    /**
      * Set by ACTION_DISCONNECT. A disconnect must win over everything:
      * in-flight handshakes, stall recovery, auto-restarts. Cleared only by
      * a user tap on CONNECT (lease-carrying intent).
@@ -290,10 +298,15 @@ class PiaVpnService : VpnService() {
             return START_STICKY
         }
         // Full lease in the intent: a user tap on CONNECT. It clears any
-        // previous stop and any recovery cooldown.
+        // previous stop and any recovery cooldown. Every tap bumps the
+        // generation: an older dial still hanging in a blocking step sees
+        // the mismatch at its next boundary and tears itself down instead
+        // of resurrecting over the new dial. The tap always wins.
         stopRequested = false
         setUserStopped(false)
         clearGiveUp()
+        dialGeneration++
+        connecting = false
         goForeground()
         Thread {
             bringUp(peerIp, endpoint, serverPort, serverKey, dnsServersCsv, allowLan, serverId, serverName, probeIps)
@@ -533,11 +546,16 @@ class PiaVpnService : VpnService() {
     }
 
     /**
-     * A DISCONNECT landed mid-dial: tear the half-built tunnel down and
-     * report nothing. The disconnect already wrote the UI state.
+     * A DISCONNECT landed mid-dial, or a newer CONNECT tap took over: tear
+     * the half-built tunnel down and report nothing. The disconnect (or the
+     * newer dial) already owns the UI state.
      */
-    private fun abortIfStopped(activeBackend: GoBackend, activeTunnel: PiaTunnel): Boolean {
-        if (!stopRequested && !isUserStopped()) return false
+    private fun abortIfStopped(
+        activeBackend: GoBackend,
+        activeTunnel: PiaTunnel,
+        myGen: Int,
+    ): Boolean {
+        if (!stopRequested && !isUserStopped() && myGen == dialGeneration) return false
         connecting = false
         try {
             activeBackend.setState(activeTunnel, Tunnel.State.DOWN, null)
@@ -598,6 +616,10 @@ class PiaVpnService : VpnService() {
         if (connecting && SystemClock.elapsedRealtime() - connectingSince < 90_000) return
         connecting = true
         connectingSince = SystemClock.elapsedRealtime()
+        // This dial's generation: a newer user tap bumps the counter, and
+        // every boundary below aborts this attempt instead of letting it
+        // resurrect over the new dial.
+        val myGen = dialGeneration
         // No link, no attempt unless the endpoint is a literal IP: a cached
         // IP lease carries its own path (lockdown), no DNS needed. Anything
         // else would burn radio on doomed DNS.
@@ -661,7 +683,7 @@ class PiaVpnService : VpnService() {
             }
             // A DISCONNECT landed mid-dial: drop the half-built tunnel, the
             // disconnect already wrote the UI state.
-            if (abortIfStopped(activeBackend, activeTunnel)) return
+            if (abortIfStopped(activeBackend, activeTunnel, myGen)) return
             // The tunnel is up, but that proves nothing about traffic: some
             // networks blackhole UDP or DNS. Give WireGuard up to ~10s to
             // complete its first handshake (rx>0) BEFORE any TCP runs: probing
@@ -693,7 +715,7 @@ class PiaVpnService : VpnService() {
             val (flows, trace) = verifyTraffic()
             // Late DISCONNECT (during handshake or verify): drop everything,
             // report nothing, the disconnect owns the UI state now.
-            if (abortIfStopped(activeBackend, activeTunnel)) return
+            if (abortIfStopped(activeBackend, activeTunnel, myGen)) return
             if (flows) {
                 trafficStalled = false
                 stallFails = 0
@@ -1204,6 +1226,9 @@ class PiaVpnService : VpnService() {
         Thread.interrupted()
         try {
             persistGiveUp()
+            // A newer user tap bumps the generation: this recovery is
+            // obsolete, hand over to the new dial.
+            val recGen = dialGeneration
             val stalledServer = activeServerId
             val stalledName = activeServerName
             if (!stopRequested && !isUserStopped() && tryRedial(
@@ -1213,7 +1238,7 @@ class PiaVpnService : VpnService() {
             ) {
                 return
             }
-            if (parkedForNoNetwork || stopRequested || isUserStopped()) return
+            if (parkedForNoNetwork || stopRequested || isUserStopped() || recGen != dialGeneration) return
             val others = try {
                 OfflineCache(this).allLeases()
             } catch (error: Exception) {
@@ -1221,7 +1246,7 @@ class PiaVpnService : VpnService() {
             }.filterKeys { it != stalledServer }
                 .entries.sortedByDescending { it.value.savedAtMs }
             for ((id, lease) in others) {
-                if (stopRequested || isUserStopped()) return
+                if (stopRequested || isUserStopped() || recGen != dialGeneration) return
                 if (tryRedial(
                         lease.peerIp, lease.endpointHost, lease.endpointPort,
                         lease.serverKey, lease.dnsCsv.ifEmpty { FALLBACK_DNS },
@@ -1230,7 +1255,7 @@ class PiaVpnService : VpnService() {
                 ) {
                     return
                 }
-                if (parkedForNoNetwork || stopRequested || isUserStopped()) return
+                if (parkedForNoNetwork || stopRequested || isUserStopped() || recGen != dialGeneration) return
             }
             giveUp(stalledServer)
         } finally {

@@ -79,6 +79,15 @@ class MainActivity : Activity() {
     @Volatile
     private var lastServerAutoRefreshMs: Long = 0L
 
+    /**
+     * Watchdog: when the tap started dialing. If no fresh tunnel state and
+     * no error arrived within the window, the attempt died silently (service
+     * process killed mid-dial): release the UI so the button works again.
+     */
+    @Volatile
+    private var connectingSinceMs: Long = 0L
+    private val CONNECT_WATCHDOG_MS = 60_000L
+
     private var stateListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -404,59 +413,63 @@ class MainActivity : Activity() {
         }
         Thread {
             try {
-                val raw = catalog.fetchRaw()
-                val fetched = catalog.parseBody(raw)
-                offlineCache.saveServerList(raw)
-                servers = fetched
-                runOnUiThread {
-                    if (selected == null) {
-                        // Preselect the last used server so one tap connects.
-                        val lastId = tokenStore.loadLastServerId()
-                        val last = fetched.firstOrNull { it.id == lastId }
-                        if (last != null) {
-                            selected = last
-                            updateConnectState()
+                try {
+                    val raw = catalog.fetchRaw()
+                    val fetched = catalog.parseBody(raw)
+                    offlineCache.saveServerList(raw)
+                    servers = fetched
+                    runOnUiThread {
+                        if (selected == null) {
+                            // Preselect the last used server so one tap connects.
+                            val lastId = tokenStore.loadLastServerId()
+                            val last = fetched.firstOrNull { it.id == lastId }
+                            if (last != null) {
+                                selected = last
+                                updateConnectState()
+                            }
+                        }
+                        selectedStatus.text = when {
+                            fetched.isEmpty() -> "No servers"
+                            selected != null -> "Selected: ${ServerLabels.label(selected!!)}"
+                            else -> "Tap Choose server to select"
                         }
                     }
-                    selectedStatus.text = when {
-                        fetched.isEmpty() -> "No servers"
-                        selected != null -> "Selected: ${ServerLabels.label(selected!!)}"
-                        else -> "Tap Choose server to select"
+                } catch (error: Exception) {
+                    val cached = try {
+                        offlineCache.loadServerList()
+                    } catch (ignored: Exception) {
+                        null
                     }
-                    refreshingServers = false
-                }
-            } catch (error: Exception) {
-                val cached = try {
-                    offlineCache.loadServerList()
-                } catch (ignored: Exception) {
-                    null
-                }
-                val cachedServers = try {
-                    if (cached != null) catalog.parseBody(cached.first) else null
-                } catch (ignored: Exception) {
-                    null
-                }
-                val cachedAt = cached?.second ?: 0L
-                runOnUiThread {
-                    if (selected == null && cachedServers != null) {
-                        servers = cachedServers
-                        val ageHours = (clock.nowEpochSec() - cachedAt) / 3600
-                        val lastId = tokenStore.loadLastServerId()
-                        val last = cachedServers.firstOrNull { it.id == lastId }
-                        if (last != null) {
-                            selected = last
-                            updateConnectState()
+                    val cachedServers = try {
+                        if (cached != null) catalog.parseBody(cached.first) else null
+                    } catch (ignored: Exception) {
+                        null
+                    }
+                    val cachedAt = cached?.second ?: 0L
+                    runOnUiThread {
+                        if (selected == null && cachedServers != null) {
+                            servers = cachedServers
+                            val ageHours = (clock.nowEpochSec() - cachedAt) / 3600
+                            val lastId = tokenStore.loadLastServerId()
+                            val last = cachedServers.firstOrNull { it.id == lastId }
+                            if (last != null) {
+                                selected = last
+                                updateConnectState()
+                                selectedStatus.text =
+                                    "Selected: ${ServerLabels.label(last)} (cached ${ageHours}h old)"
+                            } else {
+                                selectedStatus.text = "Servers cached ${ageHours}h old, pick one"
+                            }
+                        } else if (selected == null) {
                             selectedStatus.text =
-                                "Selected: ${ServerLabels.label(last)} (cached ${ageHours}h old)"
-                        } else {
-                            selectedStatus.text = "Servers cached ${ageHours}h old, pick one"
+                                "Server list failed: ${error.message ?: error.javaClass.simpleName}. Turn the kill switch off once to load it."
                         }
-                    } else if (selected == null) {
-                        selectedStatus.text =
-                            "Server list failed: ${error.message ?: error.javaClass.simpleName}. Turn the kill switch off once to load it."
                     }
-                    refreshingServers = false
                 }
+            } finally {
+                // The flag must never stick: a stuck flag would silently
+                // swallow every later reload.
+                refreshingServers = false
             }
         }.start()
     }
@@ -560,6 +573,22 @@ class MainActivity : Activity() {
         // before the service intent is processed.
         getSharedPreferences(PREFS_STATE, MODE_PRIVATE).edit()
             .putBoolean(KEY_USER_STOPPED, false).remove(KEY_GIVE_UP_AT).apply()
+        // A live tunnel is still up (stall, switch, double tap): kill it
+        // first. Intents queue in order, so the lease below is processed
+        // after the teardown; the generation bump makes any older dial in
+        // a blocking step abort instead of resurrecting over this one.
+        // From a clean disconnected state this is skipped: faster dial.
+        val (prevStored, _, prevAliveAt) = readVpnState()
+        val prevFresh = prevStored &&
+            (System.currentTimeMillis() - prevAliveAt < PiaVpnService.ALIVE_FRESH_MS)
+        if (prevFresh) {
+            try {
+                startService(Intent(this, PiaVpnService::class.java).apply {
+                    action = PiaVpnService.ACTION_DISCONNECT
+                })
+            } catch (ignored: Exception) {
+            }
+        }
         // Resolve the probe host NOW on the plain network, before the tunnel
         // claims DNS. These IPs ride inside the tunnel (TCP+TLS with SNI),
         // so a dead tunnel-DNS can no longer fake a dead tunnel. This is the
@@ -631,6 +660,7 @@ class MainActivity : Activity() {
 
     private fun setConnecting(active: Boolean) {
         connecting = active
+        if (active) connectingSinceMs = System.currentTimeMillis()
         connectProgress.visibility = if (active) View.VISIBLE else View.GONE
     }
 
@@ -641,6 +671,15 @@ class MainActivity : Activity() {
         // heartbeat means the process died without cleanup: say so honestly
         // instead of showing a fake "Connected".
         val connected = stored && (System.currentTimeMillis() - aliveAt < PiaVpnService.ALIVE_FRESH_MS)
+        // Watchdog: dialing with no fresh state and no error for over a
+        // minute means the attempt died silently. Release the UI so the
+        // hero always answers; the next tap dials fresh.
+        val watchdogFired = connecting && !connected &&
+            connectingSinceMs > 0 &&
+            System.currentTimeMillis() - connectingSinceMs > CONNECT_WATCHDOG_MS
+        if (watchdogFired) {
+            setConnecting(false)
+        }
         val current = selected
         val connectedTitle = serverId?.let { id ->
             servers.firstOrNull { it.id == id }?.let { ServerLabels.label(it) }
@@ -651,13 +690,17 @@ class MainActivity : Activity() {
             !connected || serverId.isNullOrEmpty() -> {
                 if (!connecting) {
                     connectStatus.text = "Disconnected"
-                    errorDetail.text = readLastError().orEmpty()
+                    errorDetail.text = readLastError()?.takeIf { it.isNotBlank() }
+                        ?: if (watchdogFired) "Tap CONNECT to retry" else ""
                 } else {
                     connectStatus.text = "Connecting…"
                     errorDetail.text = ""
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_off)
-                connectButton.isEnabled = current != null && !connecting
+                // The hero never goes dead: even with no server picked, a tap
+                // answers ("Select a server first"). A greyed-out button is
+                // how soft locks happen.
+                connectButton.isEnabled = true
                 connectButton.text = "CONNECT"
                 connectButton.setBackgroundResource(R.drawable.hero_off)
                 connectButton.setTextColor(getColor(R.color.pia_accent))
@@ -695,7 +738,7 @@ class MainActivity : Activity() {
                     errorDetail.text = ""
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
-                connectButton.isEnabled = !connecting
+                connectButton.isEnabled = true
                 connectButton.text = if (pickedOther) "SWITCH" else "DISCONNECT"
                 connectButton.setBackgroundResource(R.drawable.hero_on)
                 connectButton.setTextColor(getColor(R.color.pia_background))
