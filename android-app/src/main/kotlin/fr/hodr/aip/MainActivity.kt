@@ -88,6 +88,27 @@ class MainActivity : Activity() {
     private var connectingSinceMs: Long = 0L
     private val CONNECT_WATCHDOG_MS = 60_000L
 
+    /**
+     * Hero tap rate limit: one dial per window. Each accepted tap fires
+     * token + addKey against the PIA API, so 10 taps a second is pure
+     * rate-limit fuel. DISCONNECT stays unlimited (it resets this), a tap
+     * past the window always dials: control stays with the user.
+     */
+    @Volatile
+    private var lastConnectTapMs: Long = 0L
+    private val CONNECT_TAP_COOLDOWN_MS = 2_000L
+
+    /** Returns true when the dial tap goes through, false when swallowed. */
+    private fun connectTapAllowed(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastConnectTapMs < CONNECT_TAP_COOLDOWN_MS) {
+            android.widget.Toast.makeText(this, "Slow down.", android.widget.Toast.LENGTH_SHORT).show()
+            return false
+        }
+        lastConnectTapMs = now
+        return true
+    }
+
     private var stateListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -183,9 +204,13 @@ class MainActivity : Activity() {
             val entry = selected
             if (liveConnected && !liveServer.isNullOrEmpty()) {
                 if (entry == null || entry.id == liveServer) {
+                    // DISCONNECT is never rate-limited: stopping always wins,
+                    // and a fresh CONNECT right after stays instant.
+                    lastConnectTapMs = 0L
                     doDisconnect()
                     return@setOnClickListener
                 }
+                if (!connectTapAllowed()) return@setOnClickListener
                 switchServer(entry)
                 return@setOnClickListener
             }
@@ -193,6 +218,7 @@ class MainActivity : Activity() {
                 connectStatus.text = "Select a server first"
                 return@setOnClickListener
             }
+            if (!connectTapAllowed()) return@setOnClickListener
             connectTo(entry)
         }
 
