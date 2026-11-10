@@ -78,6 +78,12 @@ class PrefsTokenStore(context: Context) : TokenStore {
 
     fun loadLastServerId(): String? = prefs.getString(KEY_LAST_SERVER_ID, null)
 
+    fun saveLastServerTitle(title: String) {
+        prefs.edit().putString(KEY_LAST_SERVER_TITLE, title).apply()
+    }
+
+    fun loadLastServerTitle(): String? = prefs.getString(KEY_LAST_SERVER_TITLE, null)
+
     companion object {
         private const val PREFS_NAME = "pia-auth"
         private const val KEY_USERNAME = "username"
@@ -86,5 +92,6 @@ class PrefsTokenStore(context: Context) : TokenStore {
         private const val KEY_ISSUED_AT = "issuedAt"
         private const val KEY_LAST_HOST = "lastHost"
         private const val KEY_LAST_SERVER_ID = "lastServerId"
+        private const val KEY_LAST_SERVER_TITLE = "lastServerTitle"
     }
 }

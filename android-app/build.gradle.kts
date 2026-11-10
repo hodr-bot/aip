@@ -3,7 +3,7 @@ plugins {
     kotlin("android")
 }
 
-val appVersionName = "1.36"
+val appVersionName = "1.37"
 
 repositories {
     google()
@@ -18,7 +18,7 @@ android {
         applicationId = "fr.hodr.aip"
         minSdk = 26
         targetSdk = 34
-        versionCode = 37
+        versionCode = 38
         versionName = appVersionName
     }
 

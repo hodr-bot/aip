@@ -73,6 +73,12 @@ class MainActivity : Activity() {
     private var pendingServer: ServerEntry? = null
     private var pendingFromCache: Boolean = false
 
+    @Volatile
+    private var refreshingServers: Boolean = false
+
+    @Volatile
+    private var lastServerAutoRefreshMs: Long = 0L
+
     private var stateListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -166,16 +172,16 @@ class MainActivity : Activity() {
             val (live, liveServer, liveAt) = readVpnState()
             val liveConnected = live && (System.currentTimeMillis() - liveAt < PiaVpnService.ALIVE_FRESH_MS)
             val entry = selected
-            if (entry == null) {
-                connectStatus.text = "Select a server first"
-                return@setOnClickListener
-            }
             if (liveConnected && !liveServer.isNullOrEmpty()) {
-                if (entry.id == liveServer) {
+                if (entry == null || entry.id == liveServer) {
                     doDisconnect()
                     return@setOnClickListener
                 }
                 switchServer(entry)
+                return@setOnClickListener
+            }
+            if (entry == null) {
+                connectStatus.text = "Select a server first"
                 return@setOnClickListener
             }
             connectTo(entry)
@@ -200,6 +206,15 @@ class MainActivity : Activity() {
                     setConnecting(false)
                 }
                 updateConnectState()
+                // Tunnel just came up but the list never loaded (kill switch
+                // blocked the first fetch): retry through the tunnel, at most
+                // once a minute. This also fills the offline cache.
+                if (fresh && servers.isEmpty() && !refreshingServers &&
+                    System.currentTimeMillis() - lastServerAutoRefreshMs > 60_000
+                ) {
+                    lastServerAutoRefreshMs = System.currentTimeMillis()
+                    refreshServers()
+                }
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(stateListener)
@@ -293,6 +308,7 @@ class MainActivity : Activity() {
         pendingFromCache = fromCache
         tokenStore.saveLastHost(entry.hostname)
         tokenStore.saveLastServerId(entry.id)
+        tokenStore.saveLastServerTitle(entry.displayTitle())
         val prepareIntent = VpnService.prepare(this)
         if (prepareIntent != null) {
             connectStatus.text = "Waiting for VPN permission..."
@@ -379,6 +395,8 @@ class MainActivity : Activity() {
     }
 
     private fun refreshServers() {
+        if (refreshingServers) return
+        refreshingServers = true
         runOnUiThread {
             if (selected == null) {
                 selectedStatus.text = "Loading servers..."
@@ -405,6 +423,7 @@ class MainActivity : Activity() {
                         selected != null -> "Selected: ${ServerLabels.label(selected!!)}"
                         else -> "Tap Choose server to select"
                     }
+                    refreshingServers = false
                 }
             } catch (error: Exception) {
                 val cached = try {
@@ -417,25 +436,26 @@ class MainActivity : Activity() {
                 } catch (ignored: Exception) {
                     null
                 }
+                val cachedAt = cached?.second ?: 0L
                 runOnUiThread {
                     if (selected == null && cachedServers != null) {
                         servers = cachedServers
+                        val ageHours = (clock.nowEpochSec() - cachedAt) / 3600
                         val lastId = tokenStore.loadLastServerId()
                         val last = cachedServers.firstOrNull { it.id == lastId }
                         if (last != null) {
                             selected = last
                             updateConnectState()
-                        }
-                        val ageH = (System.currentTimeMillis() - cached!!.second) / 3_600_000
-                        selectedStatus.text = if (selected != null) {
-                            "Selected: ${ServerLabels.label(selected!!)} (cached ${ageH}h)"
+                            selectedStatus.text =
+                                "Selected: ${ServerLabels.label(last)} (cached ${ageHours}h old)"
                         } else {
-                            "Servers cached ${ageH}h old, tap Choose server"
+                            selectedStatus.text = "Servers cached ${ageHours}h old, pick one"
                         }
                     } else if (selected == null) {
                         selectedStatus.text =
-                            "Server list failed: ${error.message ?: error.javaClass.simpleName}"
+                            "Server list failed: ${error.message ?: error.javaClass.simpleName}. Turn the kill switch off once to load it."
                     }
+                    refreshingServers = false
                 }
             }
         }.start()
@@ -620,6 +640,8 @@ class MainActivity : Activity() {
         val current = selected
         val connectedTitle = serverId?.let { id ->
             servers.firstOrNull { it.id == id }?.let { ServerLabels.label(it) }
+                ?: tokenStore.loadLastServerTitle()?.takeIf { it.isNotBlank() }
+                ?: id
         } ?: serverId
         when {
             !connected || serverId.isNullOrEmpty() -> {
@@ -651,18 +673,28 @@ class MainActivity : Activity() {
                 connectButton.setTextColor(getColor(R.color.pia_background))
             }
             else -> {
+                // Live tunnel to a server that is not the current pick (or no
+                // pick yet after a restart): the pill tells the truth and the
+                // hero never offers CONNECT while connected. SWITCH swaps to
+                // the pick, DISCONNECT drops the tunnel with no pick needed.
+                val pickedOther = current != null
                 if (!connecting) {
                     connectStatus.text = "Connected"
-                    errorDetail.text = "$connectedTitle (other server picked, tap to switch)"
+                    errorDetail.text = if (pickedOther) {
+                        "$connectedTitle (other server picked, tap to switch)"
+                    } else {
+                        readLastError()?.takeIf { it.isNotBlank() }
+                            ?: "Connected to $connectedTitle"
+                    }
                 } else {
                     connectStatus.text = "Connecting…"
                     errorDetail.text = ""
                 }
                 connectStatus.setBackgroundResource(R.drawable.pill_busy.takeIf { connecting } ?: R.drawable.pill_on)
-                connectButton.isEnabled = current != null && !connecting
-                connectButton.text = "CONNECT"
-                connectButton.setBackgroundResource(R.drawable.hero_off)
-                connectButton.setTextColor(getColor(R.color.pia_accent))
+                connectButton.isEnabled = !connecting
+                connectButton.text = if (pickedOther) "SWITCH" else "DISCONNECT"
+                connectButton.setBackgroundResource(R.drawable.hero_on)
+                connectButton.setTextColor(getColor(R.color.pia_background))
             }
         }
     }

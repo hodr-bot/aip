@@ -8,14 +8,15 @@ import android.text.TextWatcher
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ListView
+import android.widget.Toast
 import pia.core.HttpPort
 import pia.core.ServerCatalog
 import pia.core.ServerEntry
 
 /**
  * Full-screen server list with a search filter. The [EditText] filters by
- * display title or id (case-insensitive). Each row shows a flag emoji, the
- * human-readable title and badge icons for virtual or streaming-optimized
+ * display title or id (case-insensitive). Each row shows the badge code and
+ * human-readable title with text tags for virtual or streaming-optimized
  * regions; hostnames and IPs never appear. Tapping a row returns the full
  * entry to [MainActivity] via setResult.
  */
@@ -74,9 +75,40 @@ class ServerListActivity : Activity() {
                 servers = fetched
                 runOnUiThread { applyFilter(searchField.text.toString()) }
             } catch (error: Exception) {
+                // Blocked network (kill switch without a tunnel): fall back to
+                // the cached list so a server can still be picked. The cached
+                // lease then dials by literal IP, no DNS needed.
+                val cached = try {
+                    OfflineCache(this@ServerListActivity).loadServerList()
+                } catch (ignored: Exception) {
+                    null
+                }
+                val cachedServers = try {
+                    if (cached != null) catalog.parseBody(cached.first) else null
+                } catch (ignored: Exception) {
+                    null
+                }
                 runOnUiThread {
-                    adapter.clear()
-                    adapter.add("Server list failed: ${error.message ?: error.javaClass.simpleName}")
+                    if (!cachedServers.isNullOrEmpty()) {
+                        servers = cachedServers
+                        val ageHours =
+                            (System.currentTimeMillis() - cached!!.second) / 3_600_000
+                        filtered = cachedServers
+                        adapter.clear()
+                        adapter.addAll(cachedServers.map { ServerLabels.label(it) })
+                        adapter.notifyDataSetChanged()
+                        Toast.makeText(
+                            this@ServerListActivity,
+                            "Showing cached servers (${ageHours}h old)",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        adapter.clear()
+                        adapter.add(
+                            "Server list failed: " +
+                                "${error.message ?: error.javaClass.simpleName}"
+                        )
+                    }
                 }
             }
         }.start()
