@@ -19,12 +19,9 @@ var STORAGE_KEY_PROXY_PASSWORD = 'piaProxyPassword';
 var serverListElement = null;
 var statusMessageElement = null;
 var refreshButtonElement = null;
-var credentialsFormElement = null;
-var usernameInputElement = null;
-var passwordInputElement = null;
-var credentialsStatusElement = null;
-var proxyUsernameInputElement = null;
-var proxyPasswordInputElement = null;
+var accountLoginStateElement = null;
+var accountProxyStateElement = null;
+var openAccountSettingsElement = null;
 var heroStateElement = null;
 var statusServerElement = null;
 var statusProxyElement = null;
@@ -332,6 +329,15 @@ function renderStatus(status) {
     statusTokenElement.textContent = (typeof status.tokenRemainingSec === 'number') ?
       formatTokenRemaining(status.tokenRemainingSec) : 'none';
   }
+  if (accountLoginStateElement) {
+    accountLoginStateElement.textContent = status.hasCredentials ? 'saved' : 'missing';
+  }
+  if (accountProxyStateElement) {
+    accountProxyStateElement.textContent = status.hasProxyCredentials ? 'saved' : 'missing';
+  }
+  if (statusPageMessageElement && !status.proxyActive && status.lastFailure) {
+    statusPageMessageElement.textContent = status.lastFailure;
+  }
   renderKillswitch(status);
 }
 
@@ -387,61 +393,22 @@ function handleKillswitchToggle() {
     });
 }
 
-/* ---- Account page ---- */
+/* ---- Account page ----
+ * Credentials live on the full settings tab (options page), never in the
+ * popup: the popup auto-closes on focus loss, a tab does not. The Account
+ * tab only shows what is saved and opens the settings page. */
 
-function showCredentialsStatusMessage(text) {
-  if (credentialsStatusElement) {
-    credentialsStatusElement.textContent = text;
-  }
-}
-
-// Prefill the usernames only; password fields always start empty.
-function prefillStoredUsername() {
-  return browser.storage.local.get([STORAGE_KEY_USERNAME, STORAGE_KEY_PROXY_USERNAME]).then(function (stored) {
-    var value = stored[STORAGE_KEY_USERNAME] || '';
-    if (usernameInputElement && typeof value === 'string') {
-      usernameInputElement.value = value;
-    }
-    var proxyValue = stored[STORAGE_KEY_PROXY_USERNAME] || '';
-    if (proxyUsernameInputElement && typeof proxyValue === 'string') {
-      proxyUsernameInputElement.value = proxyValue;
-    }
-  }).catch(function (prefillError) {
-    if (typeof console !== 'undefined' && console.warn) {
-      console.warn('[pia] username prefill failed:', prefillError);
-    }
-  });
-}
-
-function saveCredentials(username, password, proxyUsername, proxyPassword) {
-  var update = {};
-  update[STORAGE_KEY_USERNAME] = username;
-  update[STORAGE_KEY_PASSWORD] = password;
-  update[STORAGE_KEY_PROXY_USERNAME] = proxyUsername;
-  update[STORAGE_KEY_PROXY_PASSWORD] = proxyPassword;
-  return browser.storage.local.set(update);
-}
-
-function handleCredentialsSave(event) {
-  if (event) {
-    event.preventDefault();
-  }
-  var username = usernameInputElement ? usernameInputElement.value : '';
-  var password = passwordInputElement ? passwordInputElement.value : '';
-  var proxyUsername = proxyUsernameInputElement ? proxyUsernameInputElement.value : '';
-  var proxyPassword = proxyPasswordInputElement ? proxyPasswordInputElement.value : '';
-  return saveCredentials(username, password, proxyUsername, proxyPassword).then(function () {
-    showCredentialsStatusMessage('Credentials saved. Connecting…');
-    return browser.runtime.sendMessage({ type: MESSAGE_RECONNECT }).then(function (status) {
-      renderStatus(status);
-      showCredentialsStatusMessage(status.proxyActive ? 'Connected.' : 'Saved. Proxy not up yet.');
+function handleOpenAccountSettings() {
+  if (browser.runtime && browser.runtime.openOptionsPage) {
+    browser.runtime.openOptionsPage().catch(function (openError) {
+      if (statusPageMessageElement) {
+        statusPageMessageElement.textContent = 'Could not open the settings page.';
+      }
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[pia] openOptionsPage failed:', openError);
+      }
     });
-  }).catch(function (saveError) {
-    showCredentialsStatusMessage('Could not save the credentials.');
-    if (typeof console !== 'undefined' && console.warn) {
-      console.warn('[pia] credentials save failed:', saveError);
-    }
-  });
+  }
 }
 
 function handleReconnect() {
@@ -451,7 +418,8 @@ function handleReconnect() {
   return browser.runtime.sendMessage({ type: MESSAGE_RECONNECT }).then(function (status) {
     renderStatus(status);
     if (statusPageMessageElement) {
-      statusPageMessageElement.textContent = status.proxyActive ? '' : 'Proxy not up yet.';
+      statusPageMessageElement.textContent = status.proxyActive ? '' :
+        (status.lastFailure || 'Proxy not up yet.');
     }
   }).catch(function (reconnectError) {
     if (statusPageMessageElement) {
@@ -483,12 +451,9 @@ function initialisePopup() {
   serverListElement = document.getElementById('serverList');
   statusMessageElement = document.getElementById('statusMessage');
   refreshButtonElement = document.getElementById('refreshButton');
-  credentialsFormElement = document.getElementById('credentialsForm');
-  usernameInputElement = document.getElementById('piaUsernameInput');
-  passwordInputElement = document.getElementById('piaPasswordInput');
-  credentialsStatusElement = document.getElementById('credentialsStatusMessage');
-  proxyUsernameInputElement = document.getElementById('piaProxyUsernameInput');
-  proxyPasswordInputElement = document.getElementById('piaProxyPasswordInput');
+  accountLoginStateElement = document.getElementById('accountLoginState');
+  accountProxyStateElement = document.getElementById('accountProxyState');
+  openAccountSettingsElement = document.getElementById('openAccountSettings');
   heroStateElement = document.getElementById('heroState');
   statusServerElement = document.getElementById('statusServer');
   statusProxyElement = document.getElementById('statusProxy');
@@ -515,9 +480,9 @@ function initialisePopup() {
       refreshOrganisedList();
     });
   }
-  if (credentialsFormElement) {
-    credentialsFormElement.addEventListener('submit', function (event) {
-      handleCredentialsSave(event);
+  if (openAccountSettingsElement) {
+    openAccountSettingsElement.addEventListener('click', function () {
+      handleOpenAccountSettings();
     });
   }
   if (reconnectButtonElement) {
@@ -530,7 +495,6 @@ function initialisePopup() {
       handleKillswitchToggle();
     });
   }
-  prefillStoredUsername();
   refreshStatusPage();
   // Prefer the persisted choice already in storage so the lowest-latency
   // default only applies when nothing was stored before.
