@@ -32,6 +32,7 @@ class DaemonEngine(
     private val tunnel: TunnelOps,
     private val state: EngineState,
     private val clock: Clock = SystemClock(),
+    private val pf: PortForward? = null,
 ) {
     enum class Status { DOWN, CONNECTING, UP, PARKED }
 
@@ -41,11 +42,16 @@ class DaemonEngine(
         private set
     var activeServerId: String? = null
         private set
+    var forwardedPort: Int? = null
+        private set
 
     private var generation = 0L
     private var connectingSinceSec = 0L
     private var lastHandshakeSec = 0L
     private var stallWarned = false
+    private var activeHostname: String? = null
+    private var activeGatewayIp: String? = null
+    private var lastPfSec = 0L
 
     fun connect(serverId: String? = null): Boolean {
         val myGen = ++generation
@@ -59,7 +65,10 @@ class DaemonEngine(
     fun disconnect() {
         generation++
         state.userStopped = true
+        state.forwardedPort = null
         state.save()
+        pf?.reset()
+        forwardedPort = null
         tunnel.bringDown()
         tunnel.applyRules(NftRules.build(openParams()))
         status = Status.DOWN
@@ -90,6 +99,26 @@ class DaemonEngine(
         return true
     }
 
+    /**
+     * Toggle port forwarding; enabling on a live tunnel binds immediately
+     * without redial. [hook] is the Post-Port-Up shell command, run with
+     * PIAD_PORT set on every (re)bind.
+     */
+    fun setPortForward(on: Boolean, hook: String?): Boolean {
+        state.portForward = on
+        if (hook != null) state.postPortUp = hook
+        state.save()
+        if (!on) {
+            pf?.reset()
+            forwardedPort = null
+            state.forwardedPort = null
+            state.save()
+            return true
+        }
+        if (status == Status.UP) refreshPortForward()
+        return true
+    }
+
     fun serverList(): List<pia.core.ServerEntry> = freshServers()
 
     /**
@@ -108,6 +137,7 @@ class DaemonEngine(
         if (hs != null && hs > 0) {
             lastHandshakeSec = hs
             stallWarned = false
+            maybeRefreshPf()
             return false
         }
         val stalledFor = now - lastHandshakeSec
@@ -139,7 +169,7 @@ class DaemonEngine(
             val keys = newKeypair()
             val result = client.addKey(target.hostname, token, keys.publicB64)
             if (myGen != generation) return false
-            return bringUpLease(myGen, target.id, result, keys.privateB64)
+            return bringUpLease(myGen, target.id, target.hostname, result, keys.privateB64)
         } catch (auth: PiaAuthError) {
             lastError = "Login rejected, check account"
             park()
@@ -153,7 +183,7 @@ class DaemonEngine(
         return dialCached(myGen) || giveUp()
     }
 
-    private fun bringUpLease(myGen: Long, serverId: String, result: LeaseResult, privateB64: String): Boolean {
+    private fun bringUpLease(myGen: Long, serverId: String, hostname: String, result: LeaseResult, privateB64: String): Boolean {
         val dns = result.dnsServers.ifEmpty { listOf("10.0.0.243") }
         val endpointIp = result.lease.endpoint.substringBefore(":")
         val endpointPort = result.lease.endpoint.substringAfter(":").toIntOrNull() ?: PiaClient.ADD_KEY_PORT
@@ -190,10 +220,39 @@ class DaemonEngine(
         )
         state.save()
         activeServerId = serverId
+        activeHostname = hostname
+        activeGatewayIp = endpointIp
         status = Status.UP
         lastHandshakeSec = clock.nowEpochSec()
         stallWarned = false
+        refreshPortForward()
         return true
+    }
+
+    /**
+     * Bind the forwarded port now; PF failures keep the tunnel up with a
+     * note in lastError instead of tearing down working traffic.
+     */
+    private fun refreshPortForward() {
+        if (!state.portForward) return
+        val manager = pf ?: return
+        val host = activeHostname ?: return
+        val gw = activeGatewayIp ?: return
+        try {
+            val token = client.ensureValidToken(store)
+            forwardedPort = manager.refresh(host, gw, token.value)
+            state.forwardedPort = forwardedPort
+            state.save()
+            lastPfSec = clock.nowEpochSec()
+        } catch (t: Throwable) {
+            lastError = "Port forward failed: ${t.message ?: t.javaClass.simpleName}"
+        }
+    }
+
+    private fun maybeRefreshPf() {
+        if (!state.portForward || pf == null) return
+        if (clock.nowEpochSec() - lastPfSec < PortForward.REFRESH_SEC) return
+        refreshPortForward()
     }
 
     private fun dialCached(myGen: Long): Boolean {
@@ -208,7 +267,7 @@ class DaemonEngine(
             val target = servers.firstOrNull { it.id == cached.serverId } ?: return false
             val result = client.addKey(target.hostname, token, keys.publicB64)
             if (myGen != generation) return false
-            bringUpLease(myGen, target.id, result, keys.privateB64)
+            bringUpLease(myGen, target.id, target.hostname, result, keys.privateB64)
         } catch (t: Throwable) {
             false
         }
@@ -304,6 +363,9 @@ class EngineState(private val path: Path) {
     var allowLan: Boolean = false
     var cachedLease: CachedLease? = null
     var serversRaw: String? = null
+    var portForward: Boolean = false
+    var postPortUp: String? = null
+    var forwardedPort: Int? = null
 
     init {
         load()
@@ -320,6 +382,9 @@ class EngineState(private val path: Path) {
         giveUpUntilSec = props.getProperty("giveUpUntilSec")?.toLongOrNull() ?: 0
         lastServerId = props.getProperty("lastServerId")
         allowLan = props.getProperty("allowLan") == "true"
+        portForward = props.getProperty("portForward") == "true"
+        postPortUp = props.getProperty("postPortUp")
+        forwardedPort = props.getProperty("forwardedPort")?.toIntOrNull()
         val leaseServer = props.getProperty("leaseServer")
         cachedLease = if (leaseServer != null) {
             CachedLease(
@@ -342,6 +407,9 @@ class EngineState(private val path: Path) {
         props.setProperty("giveUpUntilSec", giveUpUntilSec.toString())
         lastServerId?.let { props.setProperty("lastServerId", it) }
         props.setProperty("allowLan", allowLan.toString())
+        props.setProperty("portForward", portForward.toString())
+        postPortUp?.let { props.setProperty("postPortUp", it) }
+        forwardedPort?.let { props.setProperty("forwardedPort", it.toString()) }
         cachedLease?.let {
             props.setProperty("leaseServer", it.serverId)
             props.setProperty("leasePeerIp", it.peerIp)

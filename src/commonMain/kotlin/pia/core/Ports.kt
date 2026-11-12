@@ -4,6 +4,10 @@ package pia.core
 interface HttpPort {
     fun postForm(url: String, fields: Map<String, String>): String
     fun get(url: String, headers: Map<String, String> = emptyMap()): String
+    /** Raw JSON POST (PIA port-forward bind). Default throws: ports that do
+     * not need it keep working without implementing it. */
+    fun postJson(url: String, json: String): String =
+        throw UnsupportedOperationException("postJson not implemented")
 }
 
 /** Credential + token persistence; platforms inject browser.storage / DataStore. */

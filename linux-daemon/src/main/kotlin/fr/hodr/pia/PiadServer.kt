@@ -87,6 +87,7 @@ class PiadServer(
         val parts = line.split(" ")
         return when (parts.firstOrNull()?.uppercase()) {
             "STATUS" -> "status=${engine.status} server=${engine.activeServerId ?: "-"} " +
+                "port=${engine.forwardedPort ?: "-"} " +
                 "error=${engine.lastError ?: "-"}"
             "CONNECT" -> {
                 val ok = engine.connect(parts.getOrNull(1))
@@ -112,6 +113,20 @@ class PiadServer(
                 engine.serverList().joinToString(";") { "${it.id}=${it.displayTitle()}" }
             } catch (t: Throwable) {
                 "FAIL ${engine.lastError ?: "no server list"}"
+            }
+            "PORT" -> "port=${engine.forwardedPort ?: "-"}"
+            "PORTFORWARD" -> {
+                when (parts.getOrNull(1)?.lowercase()) {
+                    "on" -> {
+                        engine.setPortForward(true, parts.drop(2).joinToString(" ").ifEmpty { null })
+                        "OK port=${engine.forwardedPort ?: "-"}"
+                    }
+                    "off" -> {
+                        engine.setPortForward(false, null)
+                        "OK"
+                    }
+                    else -> "FAIL usage: PORTFORWARD on [hook]|off"
+                }
             }
             else -> "FAIL unknown command"
         }

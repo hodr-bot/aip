@@ -11,6 +11,9 @@ import pia.core.ServerCatalog
  *   connect [server]   dial now (clears stop flag and cooldown)
  *   disconnect         stay down (persists the stop flag first)
  *   login user pass    store credentials in the 0600 token store
+ *   pf on [hook]       enable port forwarding, optional Post-Port-Up command
+ *   pf off             disable port forwarding
+ *   port               print the bound forwarded port (or -)
  *   status             print one-line state
  *
  * State dir defaults to /var/lib/piad, overridable with PIAD_STATE_DIR
@@ -23,6 +26,11 @@ fun main(args: Array<String>) {
     val store = FileTokenStore(dir.resolve("auth"))
     val state = EngineState(dir.resolve("state.properties"))
     val runner = ProcessCommandRunner()
+    val pf = PortForward(PiaClient(http, clock), clock) { port, _ ->
+        state.postPortUp?.let { hook ->
+            runner.runShell(hook, mapOf("PIAD_PORT" to port.toString()))
+        }
+    }
     val engine = DaemonEngine(
         client = PiaClient(http, clock),
         catalog = ServerCatalog(http),
@@ -30,6 +38,7 @@ fun main(args: Array<String>) {
         tunnel = TunnelOps(runner),
         state = state,
         clock = clock,
+        pf = pf,
     )
     when (args.firstOrNull() ?: "status") {
         "serve" -> serve(engine, store, dir, runner)
@@ -54,10 +63,28 @@ fun main(args: Array<String>) {
         }
         "status" -> println(
             "status=${engine.status} server=${engine.activeServerId ?: "-"} " +
+                "port=${engine.forwardedPort ?: "-"} " +
                 "error=${engine.lastError ?: "-"}",
         )
+        "port" -> println("port=${engine.forwardedPort ?: "-"}")
+        "pf" -> {
+            when (args.getOrNull(1)?.lowercase()) {
+                "on" -> {
+                    engine.setPortForward(true, args.drop(2).joinToString(" ").ifEmpty { null })
+                    println("port=${engine.forwardedPort ?: "-"}")
+                }
+                "off" -> {
+                    engine.setPortForward(false, null)
+                    println("port=-")
+                }
+                else -> {
+                    System.err.println("usage: piad pf on [hook]|off")
+                    kotlin.system.exitProcess(2)
+                }
+            }
+        }
         else -> {
-            System.err.println("usage: piad [serve|connect [serverId]|disconnect|login user pass|status]")
+            System.err.println("usage: piad [serve|connect [serverId]|disconnect|login user pass|pf on [hook]|pf off|port|status]")
             kotlin.system.exitProcess(2)
         }
     }

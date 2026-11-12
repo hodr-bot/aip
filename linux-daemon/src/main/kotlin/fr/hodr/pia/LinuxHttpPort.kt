@@ -23,6 +23,16 @@ import pia.core.PiaAuthError
  */
 class LinuxHttpPort : HttpPort {
     override fun postForm(url: String, fields: Map<String, String>): String {
+        val body = fields.entries.joinToString("&") { (key, value) ->
+            "${URLEncoder.encode(key, "UTF-8")}=${URLEncoder.encode(value, "UTF-8")}"
+        }
+        return post(url, "application/x-www-form-urlencoded", body)
+    }
+
+    override fun postJson(url: String, json: String): String =
+        post(url, "application/json", json)
+
+    private fun post(url: String, contentType: String, body: String): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         (conn as? HttpsURLConnection)?.sslSocketFactory = tlsFactory()
         try {
@@ -30,10 +40,7 @@ class LinuxHttpPort : HttpPort {
             conn.doOutput = true
             conn.connectTimeout = 15_000
             conn.readTimeout = 15_000
-            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            val body = fields.entries.joinToString("&") { (key, value) ->
-                "${URLEncoder.encode(key, "UTF-8")}=${URLEncoder.encode(value, "UTF-8")}"
-            }
+            conn.setRequestProperty("Content-Type", contentType)
             conn.outputStream.use { out ->
                 out.write(body.toByteArray(Charsets.UTF_8))
             }

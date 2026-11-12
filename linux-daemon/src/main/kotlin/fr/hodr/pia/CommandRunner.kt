@@ -11,6 +11,9 @@ interface CommandRunner {
     }
 
     fun run(argv: List<String>, stdin: String? = null): Result
+
+    /** Run a Post-Port-Up style shell hook with extra env (e.g. PIAD_PORT). */
+    fun runShell(command: String, env: Map<String, String>): Result
 }
 
 class ProcessCommandRunner : CommandRunner {
@@ -25,6 +28,15 @@ class ProcessCommandRunner : CommandRunner {
         val err = process.errorStream.readBytes().toString(Charsets.UTF_8)
         return CommandRunner.Result(process.waitFor(), out, err)
     }
+
+    override fun runShell(command: String, env: Map<String, String>): CommandRunner.Result {
+        val builder = ProcessBuilder("sh", "-c", command)
+        builder.environment().putAll(env)
+        val process = builder.redirectErrorStream(false).start()
+        val out = process.inputStream.readBytes().toString(Charsets.UTF_8)
+        val err = process.errorStream.readBytes().toString(Charsets.UTF_8)
+        return CommandRunner.Result(process.waitFor(), out, err)
+    }
 }
 
 /** Scripted runner for tests: canned replies, full command log. */
@@ -35,5 +47,10 @@ class FakeRunner(private val replies: Map<String, CommandRunner.Result> = emptyM
     override fun run(argv: List<String>, stdin: String?): CommandRunner.Result {
         commands.add(argv to stdin)
         return replies[argv.firstOrNull()].takeIf { it != null } ?: default
+    }
+
+    override fun runShell(command: String, env: Map<String, String>): CommandRunner.Result {
+        commands.add(listOf("sh", "-c", command) to env.entries.joinToString(",") { "${it.key}=${it.value}" })
+        return default
     }
 }

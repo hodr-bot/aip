@@ -23,16 +23,24 @@ class DaemonEngineTest {
            "geo":false,"offline":false,"country":"TL"}
         ]}
     """.trimIndent()
+
+        val sigBody = """{"status":"OK","signature":{"port":41234,"expires_at":"2030-01-01T00:00:00Z","payload":"PAY1","signature":"SIG1"}}"""
     }
 
     private class FakeHttp : HttpPort {
         var addKeyFails = false
+        var lastBindJson = ""
         override fun postForm(url: String, fields: Map<String, String>): String =
             """{"status":"OK","token":"TOK123"}"""
+        override fun postJson(url: String, json: String): String {
+            lastBindJson = json
+            return """{"status":"OK"}"""
+        }
         override fun get(url: String, headers: Map<String, String>): String =
             when {
                 "addKey" in url && addKeyFails -> """{"status":"ERROR"}"""
                 "addKey" in url -> addKeyBody
+                "getSignature" in url -> sigBody
                 else -> serversBody
             }
     }
@@ -70,6 +78,53 @@ class DaemonEngineTest {
 
     private fun FakeRunner.wgSets(): Int =
         commands.count { it.first.take(2) == listOf("wg", "set") }
+
+    private fun engineWithPf(
+        http: FakeHttp = FakeHttp(),
+        clock: FakeClock = FakeClock(),
+        hooks: MutableList<String> = mutableListOf(),
+    ): EngineHarness {
+        val dir = Files.createTempDirectory("piad-eng")
+        val state = EngineState(dir.resolve("state.properties"))
+        val store = FileTokenStore(dir.resolve("auth"))
+        store.saveCredentials("user", "pass")
+        val client = PiaClient(http, clock)
+        val runner = FakeRunner()
+        val pf = PortForward(client, clock) { port, _ -> hooks.add("hook:$port") }
+        val eng = DaemonEngine(
+            client = client,
+            catalog = ServerCatalog(http),
+            store = store,
+            tunnel = TunnelOps(runner),
+            state = state,
+            clock = clock,
+            pf = pf,
+        )
+        return EngineHarness(eng, runner, state, clock)
+    }
+
+    @Test
+    fun portForwardBindsOnConnectAndReportsPort() {
+        val hooks = mutableListOf<String>()
+        val (eng, _, state) = engineWithPf(hooks = hooks)
+        eng.setPortForward(true, null)
+        assertTrue(eng.connect("testland"))
+        assertEquals(DaemonEngine.Status.UP, eng.status)
+        assertEquals(41234, eng.forwardedPort)
+        assertEquals(41234, state.forwardedPort)
+        assertEquals(listOf("hook:41234"), hooks)
+    }
+
+    @Test
+    fun portForwardOffClearsPortWithoutRedial() {
+        val (eng, runner, _) = engineWithPf()
+        eng.setPortForward(true, null)
+        assertTrue(eng.connect("testland"))
+        val sets = runner.wgSets()
+        eng.setPortForward(false, null)
+        assertEquals(null, eng.forwardedPort)
+        assertEquals(sets, runner.wgSets())
+    }
 
     @Test
     fun connectDialsAndBringsTunnelUp() {

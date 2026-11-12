@@ -13,6 +13,17 @@ data class LeaseResult(
 )
 
 /**
+ * Port-forward signature: [port] forwarded on the gateway until
+ * [expiresAt] (ISO-8601 from PIA); [payload]/[signature] rebind it.
+ */
+data class PfSignature(
+    val port: Int,
+    val expiresAt: String,
+    val payload: String,
+    val signature: String,
+)
+
+/**
  * Live PIA client behind the [HttpPort] seam; no real network here.
  * Behaviour mirrors pia-foss manual-connections:
  * get_token for the 24h token, then WireGuard addKey on port 1337.
@@ -26,6 +37,9 @@ class PiaClient(
         const val TOKEN_URL = "https://www.privateinternetaccess.com/api/client/v2/token"
         const val ADD_KEY_PORT = 1337
         const val ADD_KEY_PATH = "addKey"
+        const val SIGNATURE_PATH = "getSignature"
+        const val BIND_PORT = 19999
+        const val BIND_PATH = "bindPort"
         const val HEX_DIGITS = "0123456789ABCDEF"
     }
 
@@ -102,6 +116,54 @@ class PiaClient(
         return LeaseResult(lease = lease, dnsServers = dnsServers)
     }
 
+    /**
+     * PIA port-forward step 1: fetch the signature for this token from the
+     * region entry point. The nested `signature` object carries the port,
+     * its expiry, and the payload/signature pair step 2 needs.
+     */
+    fun getSignature(hostname: String, authToken: AuthToken): PfSignature =
+        getSignature(hostname, authToken.value)
+
+    /** String-token overload so callers need not wrap the pt value. */
+    fun getSignature(hostname: String, token: String): PfSignature {
+        val url = "https://$hostname:$ADD_KEY_PORT/$SIGNATURE_PATH" +
+            "?pt=${urlEncode(token)}"
+        val body = http.get(url)
+        if (findStringField(body, "status") != "OK") {
+            throw PiaApiError("getSignature rejected with status: ${findStringField(body, "status")}")
+        }
+        // The payload lives in the nested "signature" object; the outer key
+        // itself is followed by '{', which the flat field search rejects.
+        val nested = findObjectField(body, "signature")
+            ?: throw PiaApiError("getSignature response missed the signature object")
+        val port = findIntField(nested, "port")
+        val expiresAt = findStringField(nested, "expires_at")
+        val payload = findStringField(nested, "payload")
+        val signature = findStringField(nested, "signature")
+        if (port == null || expiresAt.isNullOrEmpty() ||
+            payload.isNullOrEmpty() || signature.isNullOrEmpty()
+        ) {
+            throw PiaApiError("getSignature response missed port/expiry/payload/signature")
+        }
+        return PfSignature(port, expiresAt, payload, signature)
+    }
+
+    /**
+     * PIA port-forward step 2: bind the signature to the gateway we are
+     * connected through (the lease endpoint IP, port 19999). The payload
+     * and signature are base64url without quotes, safe to inline as JSON.
+     */
+    fun bindPort(gatewayIp: String, payload: String, signature: String) {
+        val url = "https://$gatewayIp:$BIND_PORT/$BIND_PATH"
+        val body = http.postJson(
+            url,
+            "{\"payload\":\"$payload\",\"signature\":\"$signature\"}",
+        )
+        if (findStringField(body, "status") != "OK") {
+            throw PiaApiError("bindPort rejected with status: ${findStringField(body, "status")}")
+        }
+    }
+
     private fun findStringField(body: String, field: String): String? {
         val key = "\"$field\""
         var index = body.indexOf(key)
@@ -146,6 +208,39 @@ class PiaClient(
                     return body.substring(start, cursor).toIntOrNull()
                 }
                 return null
+            }
+            index = body.indexOf(key, index + 1)
+        }
+        return null
+    }
+
+    /**
+     * Extract the `{...}` object following [field], honouring nesting.
+     * Used for the nested `signature` object in getSignature responses.
+     */
+    private fun findObjectField(body: String, field: String): String? {
+        val key = "\"$field\""
+        var index = body.indexOf(key)
+        while (index >= 0) {
+            var cursor = index + key.length
+            cursor = skipSeparators(body, cursor)
+            if (cursor < body.length && body[cursor] == ':') {
+                cursor = skipSeparators(body, cursor + 1)
+                if (cursor < body.length && body[cursor] == '{') {
+                    var depth = 0
+                    var i = cursor
+                    while (i < body.length) {
+                        when (body[i]) {
+                            '{' -> depth++
+                            '}' -> {
+                                depth--
+                                if (depth == 0) return body.substring(cursor, i + 1)
+                            }
+                        }
+                        i++
+                    }
+                    return null
+                }
             }
             index = body.indexOf(key, index + 1)
         }
