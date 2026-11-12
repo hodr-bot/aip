@@ -77,6 +77,19 @@ var lastVerdict = 'UNKNOWN';
 var DEFAULT_PROXY_HOST = 'proxy-nl.privateinternetaccess.com';
 var DEFAULT_PROXY_PORT = 1080;
 var LAN_BYPASS_LIST = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
+var PROXY_HOST_PROBE_TIMEOUT_MS = 2500;
+
+// Last human-readable connect failure, surfaced in the popup status page so
+// "proxy not up" always comes with a reason instead of silence.
+var lastFailure = null;
+
+function describeLoginFailure(error) {
+  var message = String((error && error.message) || error || '');
+  if (/rejected|status/i.test(message)) {
+    return 'Login rejected — check the username and password.';
+  }
+  return 'Login unreachable — check the connection and retry.';
+}
 
 /* ------------------------------------------------------------------ */
 /* Core namespace resolution                                           */
@@ -600,8 +613,34 @@ function saveSelectedServerId(serverId) {
   });
 }
 
-// Honour the stored server choice: map the chosen id to its hostname for
-// the next connect. When nothing is stored yet, default to the best pick
+// Region WireGuard hostnames (*.privacy.network) refuse port 1080: they are
+// not SOCKS proxies. The SOCKS fleet lives at proxy-<cc>.privateinternetaccess.com,
+// so map the region id's country code there and probe it before trusting it.
+function proxyHostCandidateForRegionId(serverId) {
+  if (typeof serverId !== 'string') {
+    return null;
+  }
+  var cc = serverId.split('_')[0];
+  if (!/^[a-z]{2}$/.test(cc)) {
+    return null;
+  }
+  return 'proxy-' + cc + '.privateinternetaccess.com';
+}
+
+function resolveProxyHostForServerId(serverId, fallbackHost) {
+  var candidate = proxyHostCandidateForRegionId(serverId);
+  if (!candidate || candidate === fallbackHost) {
+    return Promise.resolve(fallbackHost);
+  }
+  return measureServerLatency(candidate, PROXY_HOST_PROBE_TIMEOUT_MS).then(function (latency) {
+    return (latency === null) ? fallbackHost : candidate;
+  }, function () {
+    return fallbackHost;
+  });
+}
+
+// Honour the stored server choice: map the chosen id to its SOCKS hostname
+// for the next connect. When nothing is stored yet, default to the best pick
 // and persist it. Failures fall back to the configured host.
 function resolveActiveProxyHost(fallbackHost) {
   return loadSelectedServerId().then(function (storedId) {
@@ -618,14 +657,18 @@ function resolveActiveProxyHost(fallbackHost) {
           }
         }
         if (match) {
-          return { proxyHost: match.hostname, serverId: storedId };
+          return resolveProxyHostForServerId(storedId, fallbackHost).then(function (proxyHost) {
+            return { proxyHost: proxyHost, serverId: storedId };
+          });
         }
         return { proxyHost: fallbackHost, serverId: storedId };
       }
       var best = pickBestServer(servers);
       if (best) {
-        saveSelectedServerId(best.id);
-        return { proxyHost: best.hostname, serverId: best.id };
+        return resolveProxyHostForServerId(best.id, fallbackHost).then(function (proxyHost) {
+          saveSelectedServerId(best.id);
+          return { proxyHost: proxyHost, serverId: best.id };
+        });
       }
       return { proxyHost: fallbackHost, serverId: null };
     }, function () {
@@ -788,7 +831,7 @@ function applyProxyForVerdict(verdict, settings) {
         socks: settings.proxyHost + ':' + settings.proxyPort,
         socksVersion: 5,
         proxyDNS: true,
-        passthrough: LAN_BYPASS_LIST.join(', ')
+        passthrough: LAN_BYPASS_LIST.join(',')
       }
     });
   }
@@ -840,10 +883,12 @@ function refreshTokenAndApplyProxy() {
       var now = nowEpochSec();
       if (cached && !shouldRefreshToken(cached.issuedAtEpochSec, now)) {
         var verdict = decideTrafficVerdict('CONNECTED', settingsHolder.killSwitchEnabled);
+        lastFailure = null;
         return applyProxyForVerdict(verdict, settingsHolder);
       }
       if (!credentials.username || !credentials.password) {
         var missingVerdict = decideTrafficVerdict('DISCONNECTED', settingsHolder.killSwitchEnabled);
+        lastFailure = 'No credentials saved yet — open Account settings.';
         return applyProxyForVerdict(missingVerdict, settingsHolder).then(function () {
           throw new Error('no stored credentials; staying fail-closed');
         });
@@ -852,6 +897,7 @@ function refreshTokenAndApplyProxy() {
         .then(function (refreshed) {
           return saveStoredToken(refreshed).then(function () {
             var connectedVerdict = decideTrafficVerdict('CONNECTED', settingsHolder.killSwitchEnabled);
+            lastFailure = null;
             return applyProxyForVerdict(connectedVerdict, settingsHolder);
           });
         });
@@ -859,6 +905,9 @@ function refreshTokenAndApplyProxy() {
     .catch(function (refreshError) {
       if (typeof console !== 'undefined' && console.warn) {
         console.warn('[pia] token refresh failed, failing closed:', refreshError);
+      }
+      if (!/no stored credentials/.test(String((refreshError && refreshError.message) || refreshError || ''))) {
+        lastFailure = describeLoginFailure(refreshError);
       }
       return readExtensionSettings().then(function (settings) {
         return applyProxyForVerdict('BLOCK_ALL', settings);
@@ -957,7 +1006,8 @@ function getExtensionStatus() {
       proxyPort: settings.proxyPort,
       hasCredentials: !!(credentials.username && credentials.password),
       hasProxyCredentials: !!(proxyCreds.username && proxyCreds.password),
-      tokenRemainingSec: remaining
+      tokenRemainingSec: remaining,
+      lastFailure: lastFailure
     };
   });
 }

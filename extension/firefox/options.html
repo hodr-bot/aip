@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AIP VPN — Account settings</title>
+<style>
+  :root { --bg:#101410; --card:#1A211A; --accent:#7ED321; --text:#E8F0E4; --muted:#9DB09A; --error:#E0604F; }
+  body { background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; margin:0; padding:32px 16px; }
+  main { max-width:420px; margin:0 auto; background:var(--card); border-radius:12px; padding:24px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  p.sub { color:var(--muted); font-size:13px; margin:0 0 16px; }
+  .field { display:block; margin-bottom:12px; }
+  .field span { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
+  .field input { width:100%; box-sizing:border-box; padding:9px 10px; border-radius:8px; border:1px solid #2c3a2c; background:#101410; color:var(--text); font-size:14px; }
+  button.primary { width:100%; margin-top:8px; padding:10px; border:0; border-radius:8px; background:var(--accent); color:#101410; font-weight:700; font-size:14px; cursor:pointer; }
+  button.primary:disabled { opacity:.5; cursor:default; }
+  #optionsMessage { min-height:20px; margin-top:12px; font-size:13px; }
+  #optionsMessage.error { color:var(--error); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Account settings</h1>
+  <p class="sub">Saved only in this browser. Nothing leaves the machine except the login itself.</p>
+  <form id="optionsCredentialsForm" autocomplete="off">
+    <label class="field">
+      <span>Account username</span>
+      <input type="text" id="optUsername" autocomplete="username">
+    </label>
+    <label class="field">
+      <span>Account password</span>
+      <input type="password" id="optPassword" autocomplete="current-password">
+    </label>
+    <label class="field">
+      <span>Proxy username</span>
+      <input type="text" id="optProxyUsername" autocomplete="off" placeholder="x1234567">
+    </label>
+    <label class="field">
+      <span>Proxy password</span>
+      <input type="password" id="optProxyPassword" autocomplete="new-password">
+    </label>
+    <button class="primary" type="submit" id="optSave">Save and connect</button>
+  </form>
+  <div id="optionsMessage"></div>
+</main>
+<script src="options.js"></script>
+</body>
+</html>

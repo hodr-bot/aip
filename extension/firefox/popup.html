@@ -264,27 +264,11 @@
 
   <section class="page" id="pageAccount">
     <div class="card">
-      <form id="credentialsForm">
-        <label class="field">
-          <span>PIA username</span>
-          <input type="text" id="piaUsernameInput" autocomplete="username">
-        </label>
-        <label class="field">
-          <span>Password</span>
-          <input type="password" id="piaPasswordInput" autocomplete="current-password">
-        </label>
-        <label class="field">
-          <span>Proxy username (generated “x…” in the PIA panel)</span>
-          <input type="text" id="piaProxyUsernameInput" autocomplete="username" placeholder="x1234567">
-        </label>
-        <label class="field">
-          <span>Proxy password (generated, differs from account)</span>
-          <input type="password" id="piaProxyPasswordInput" autocomplete="current-password">
-        </label>
-        <button class="primary" type="submit">Save and connect</button>
-      </form>
+      <div class="row"><span>Account login</span><b id="accountLoginState">–</b></div>
+      <div class="row"><span>Proxy login</span><b id="accountProxyState">–</b></div>
+      <button class="primary" id="openAccountSettings" style="margin-top:12px">Account settings</button>
+      <div class="ok-note">Usernames and passwords are entered on a full settings page, so the popup can never close on you mid-typing.</div>
     </div>
-    <div class="status-line" id="credentialsStatusMessage"></div>
   </section>
 
   <script src="popup.js"></script>
