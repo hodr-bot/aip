@@ -33,6 +33,13 @@ class DaemonEngine(
     private val state: EngineState,
     private val clock: Clock = SystemClock(),
     private val pf: PortForward? = null,
+    /**
+     * Where the kill-switch ruleset goes. Defaults to applying the
+     * single-tunnel rules directly; a multi-tunnel manager passes a sink
+     * that merges every live tunnel into one `nft -f` before applying.
+     */
+    private val ruleSink: (NftParams) -> Boolean =
+        { params -> tunnel.applyRules(NftRules.build(params)) },
 ) {
     enum class Status { DOWN, CONNECTING, UP, PARKED }
 
@@ -70,7 +77,7 @@ class DaemonEngine(
         pf?.reset()
         forwardedPort = null
         tunnel.bringDown()
-        tunnel.applyRules(NftRules.build(openParams()))
+        ruleSink(openParams())
         status = Status.DOWN
         activeServerId = null
     }
@@ -153,7 +160,7 @@ class DaemonEngine(
 
     private fun park() {
         tunnel.bringDown()
-        tunnel.applyRules(NftRules.build(parkedParams()))
+        ruleSink(parkedParams())
         if (status == Status.UP) status = Status.PARKED
     }
 
@@ -187,14 +194,13 @@ class DaemonEngine(
         val dns = result.dnsServers.ifEmpty { listOf("10.0.0.243") }
         val endpointIp = result.lease.endpoint.substringBefore(":")
         val endpointPort = result.lease.endpoint.substringAfter(":").toIntOrNull() ?: PiaClient.ADD_KEY_PORT
-        tunnel.applyRules(
-            NftRules.build(
-                NftParams(
-                    endpointIp = endpointIp,
-                    endpointPort = endpointPort,
-                    dnsIps = dns,
-                    allowLan = state.allowLan,
-                ),
+        ruleSink(
+            NftParams(
+                endpointIp = endpointIp,
+                endpointPort = endpointPort,
+                dnsIps = dns,
+                allowLan = state.allowLan,
+                iface = tunnel.iface,
             ),
         )
         val ok = tunnel.bringUp(
@@ -307,6 +313,7 @@ class DaemonEngine(
             ?: PiaClient.ADD_KEY_PORT,
         dnsIps = emptyList(),
         allowLan = false,
+        iface = tunnel.iface,
     )
 
     private fun openParams(): NftParams = parkedParams().copy(allowLan = true)

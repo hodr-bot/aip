@@ -12,39 +12,54 @@ data class NftParams(
     val dnsIps: List<String>,
     val allowLan: Boolean,
     val extraLanNets: List<String> = emptyList(),
+    val iface: String = "pia0",
 )
 
 object NftRules {
     private val RFC1918 = listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 
-    fun build(params: NftParams): String {
+    /** Single tunnel — the classic fail-closed ruleset. */
+    fun build(params: NftParams): String = buildMulti(listOf(params))
+
+    /**
+     * Merged ruleset for every live tunnel, applied once with `nft -f`.
+     * An empty list yields a fully closed table (lo + established only),
+     * so the last tunnel going down never opens a hole.
+     */
+    fun buildMulti(all: List<NftParams>): String {
         val lines = mutableListOf<String>()
         lines.add("table inet pia {")
         lines.add("    chain input {")
         lines.add("        type filter hook input priority 0; policy drop;")
         lines.add("        iif \"lo\" accept")
         lines.add("        ct state established,related accept")
-        lines.add("        iifname \"pia0\" accept")
+        if (all.isNotEmpty()) {
+            lines.add("        iifname ${ifaceSel(all)} accept")
+        }
         lines.add("    }")
         lines.add("")
         lines.add("    chain output {")
         lines.add("        type filter hook output priority 0; policy drop;")
         lines.add("        oif \"lo\" accept")
         lines.add("        udp dport 67 accept")
-        val family = if (':' in params.endpointIp) "ip6" else "ip"
-        lines.add("        $family daddr ${params.endpointIp} udp dport ${params.endpointPort} accept")
-        if (params.allowLan) {
-            val nets = (RFC1918 + params.extraLanNets).joinToString(", ")
+        for (p in all) {
+            val family = if (':' in p.endpointIp) "ip6" else "ip"
+            lines.add("        $family daddr ${p.endpointIp} udp dport ${p.endpointPort} accept")
+        }
+        if (all.any { it.allowLan }) {
+            val nets = (RFC1918 + all.flatMap { it.extraLanNets }.distinct()).joinToString(", ")
             lines.add("        ip daddr { $nets } accept")
         }
-        lines.add("        oifname != \"pia0\" udp dport { 53, 853 } drop")
-        lines.add("        oifname != \"pia0\" tcp dport { 53, 853 } drop")
-        lines.add("        meta nfproto ipv6 oifname != \"pia0\" drop")
-        if (params.dnsIps.isNotEmpty()) {
-            val dns = params.dnsIps.joinToString(", ")
-            lines.add("        oifname \"pia0\" udp dport { 53, 853 } ip daddr { $dns } accept")
+        if (all.isNotEmpty()) {
+            lines.add("        oifname != ${ifaceSel(all)} udp dport { 53, 853 } drop")
+            lines.add("        oifname != ${ifaceSel(all)} tcp dport { 53, 853 } drop")
+            lines.add("        meta nfproto ipv6 oifname != ${ifaceSel(all)} drop")
+            val dns = all.flatMap { it.dnsIps }.distinct()
+            if (dns.isNotEmpty()) {
+                lines.add("        oifname ${ifaceSel(all)} udp dport { 53, 853 } ip daddr { ${dns.joinToString(", ")} } accept")
+            }
+            lines.add("        oifname ${ifaceSel(all)} accept")
         }
-        lines.add("        oifname \"pia0\" accept")
         lines.add("    }")
         lines.add("")
         lines.add("    chain forward {")
@@ -52,5 +67,12 @@ object NftRules {
         lines.add("    }")
         lines.add("}")
         return lines.joinToString("\n") + "\n"
+    }
+
+    /** One quoted iface, or an nft set when several tunnels share the table. */
+    private fun ifaceSel(all: List<NftParams>): String {
+        val ifaces = all.map { it.iface }.distinct().sorted()
+        if (ifaces.size == 1) return "\"${ifaces.single()}\""
+        return "{ ${ifaces.joinToString(", ") { "\"$it\"" }} }"
     }
 }

@@ -14,7 +14,7 @@ import pia.core.WireGuardLease
  */
 class TunnelOps(
     private val run: CommandRunner,
-    private val iface: String = "pia0",
+    val iface: String = "pia0",
     private val table: Int = 100,
     private val fwmark: Int = 51820,
 ) {
