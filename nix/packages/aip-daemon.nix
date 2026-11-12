@@ -11,7 +11,7 @@ let
   };
 in
 stdenv.mkDerivation {
-  pname = "pia-daemon";
+  pname = "aip-daemon";
   version = "0.1.0";
   src = ../..;
 
@@ -24,7 +24,7 @@ stdenv.mkDerivation {
     KTESTJUNIT=$(find $KOTLIN_BASE -name kotlin-test-junit.jar | head -1)
     test -n "$KTEST" || (echo "kotlin-test.jar not found" >&2; exit 1)
     CORE_SRC=$(echo src/commonMain/kotlin/pia/core/*.kt)
-    MAIN=$(echo linux-daemon/src/main/kotlin/fr/hodr/pia/*.kt)
+    MAIN=$(echo linux-daemon/src/main/kotlin/fr/hodr/aip/*.kt)
     # @JsExport is common-only metadata for the JS build; strip it for the
     # JVM daemon compile (no repo change, transform lives in this derivation).
     mkdir -p core-stripped
@@ -34,32 +34,32 @@ stdenv.mkDerivation {
           -e '/^@JsExport$/d' "$f" > "core-stripped/$(basename $f)"
     done
     CORE=$(echo core-stripped/*.kt)
-    kotlinc -Xmulti-platform -include-runtime $CORE $MAIN -nowarn -d piad.jar
+    kotlinc -Xmulti-platform -include-runtime $CORE $MAIN -nowarn -d aipd.jar
     # Unit tests: compile and run under JUnit4. Fails the build on red.
-    TEST=$(echo linux-daemon/src/test/kotlin/fr/hodr/pia/*.kt)
-    kotlinc -Xmulti-platform $TEST -nowarn -cp piad.jar:$KTEST:$KTESTJUNIT:${junit}:${hamcrest} -d piad-test.jar
-    ${jre}/bin/java -cp piad.jar:piad-test.jar:$KTEST:$KTESTJUNIT:${junit}:${hamcrest} \
+    TEST=$(echo linux-daemon/src/test/kotlin/fr/hodr/aip/*.kt)
+    kotlinc -Xmulti-platform $TEST -nowarn -cp aipd.jar:$KTEST:$KTESTJUNIT:${junit}:${hamcrest} -d aipd-test.jar
+    ${jre}/bin/java -cp aipd.jar:aipd-test.jar:$KTEST:$KTESTJUNIT:${junit}:${hamcrest} \
       org.junit.runner.JUnitCore \
-      fr.hodr.pia.NftRulesTest \
-      fr.hodr.pia.FileTokenStoreTest \
-      fr.hodr.pia.TunnelOpsTest \
-      fr.hodr.pia.DaemonEngineTest \
-      fr.hodr.pia.PortForwardTest \
-      fr.hodr.pia.TunnelConfigsTest \
-      fr.hodr.pia.TunnelManagerTest \
-      fr.hodr.pia.PiadServerTest
+      fr.hodr.aip.NftRulesTest \
+      fr.hodr.aip.FileTokenStoreTest \
+      fr.hodr.aip.TunnelOpsTest \
+      fr.hodr.aip.DaemonEngineTest \
+      fr.hodr.aip.PortForwardTest \
+      fr.hodr.aip.TunnelConfigsTest \
+      fr.hodr.aip.TunnelManagerTest \
+      fr.hodr.aip.AipdServerTest
   '';
   installPhase = ''
     mkdir -p $out/bin $out/libexec $out/share
-    cp piad.jar $out/libexec/
-    cp linux-daemon/piad.service $out/share/
-    makeWrapper ${jre}/bin/java $out/bin/piad \
-      --add-flags "-cp $out/libexec/piad.jar fr.hodr.pia.DaemonMainKt" \
+    cp aipd.jar $out/libexec/
+    cp linux-daemon/aipd.service $out/share/
+    makeWrapper ${jre}/bin/java $out/bin/aipd \
+      --add-flags "-cp $out/libexec/aipd.jar fr.hodr.aip.DaemonMainKt" \
       --prefix PATH : ${lib.makeBinPath [ wireguard-tools nftables iproute2 ]}
   '';
 
   meta = with lib; {
-    description = "AIP PIA VPN daemon (WireGuard plus fail-closed nftables kill switch)";
+    description = "AIP VPN daemon (WireGuard plus fail-closed nftables kill switch)";
     platforms = platforms.linux;
   };
 }

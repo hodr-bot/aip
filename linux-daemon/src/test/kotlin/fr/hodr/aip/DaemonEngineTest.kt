@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.nio.file.Files
 import pia.core.HttpPort
@@ -52,7 +52,7 @@ class DaemonEngineTest {
     private fun engine(
         http: FakeHttp = FakeHttp(),
         runner: FakeRunner = FakeRunner(),
-        dir: java.nio.file.Path = Files.createTempDirectory("piad-eng"),
+        dir: java.nio.file.Path = Files.createTempDirectory("aipd-eng"),
         clock: FakeClock = FakeClock(),
     ): EngineHarness {
         val state = EngineState(dir.resolve("state.properties"))
@@ -84,7 +84,7 @@ class DaemonEngineTest {
         clock: FakeClock = FakeClock(),
         hooks: MutableList<String> = mutableListOf(),
     ): EngineHarness {
-        val dir = Files.createTempDirectory("piad-eng")
+        val dir = Files.createTempDirectory("aipd-eng")
         val state = EngineState(dir.resolve("state.properties"))
         val store = FileTokenStore(dir.resolve("auth"))
         store.saveCredentials("user", "pass")

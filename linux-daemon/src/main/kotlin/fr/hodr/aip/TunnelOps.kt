@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermission
@@ -14,7 +14,7 @@ import pia.core.WireGuardLease
  */
 class TunnelOps(
     private val run: CommandRunner,
-    val iface: String = "pia0",
+    val iface: String = "aip0",
     private val table: Int = 100,
     private val fwmark: Int = 51820,
 ) {
@@ -62,7 +62,7 @@ class TunnelOps(
 
     /** Applies a ruleset built by [NftRules] through a 0600 temp file. */
     fun applyRules(ruleset: String): Boolean {
-        val tmp = Files.createTempFile("pia-rules", ".nft")
+        val tmp = Files.createTempFile("aip-rules", ".nft")
         try {
             try {
                 Files.setPosixFilePermissions(

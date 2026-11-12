@@ -1,10 +1,10 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 /**
  * Parameters for the fail-closed nftables ruleset. Pure data in, ruleset
  * text out: no process, no network, fully unit-testable. The daemon applies
  * the text with `nft -f` as root; verification happens on target with
- * `nft list table inet pia` and leak probes.
+ * `nft list table inet aip` and leak probes.
  */
 data class NftParams(
     val endpointIp: String,
@@ -12,7 +12,7 @@ data class NftParams(
     val dnsIps: List<String>,
     val allowLan: Boolean,
     val extraLanNets: List<String> = emptyList(),
-    val iface: String = "pia0",
+    val iface: String = "aip0",
 )
 
 object NftRules {
@@ -28,7 +28,7 @@ object NftRules {
      */
     fun buildMulti(all: List<NftParams>): String {
         val lines = mutableListOf<String>()
-        lines.add("table inet pia {")
+        lines.add("table inet aip {")
         lines.add("    chain input {")
         lines.add("        type filter hook input priority 0; policy drop;")
         lines.add("        iif \"lo\" accept")

@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import pia.core.WireGuardLease
 import kotlin.test.Test
@@ -20,7 +20,7 @@ class TunnelOpsTest {
         assertTrue(ops.bringUp(lease, "PRIVKEY", listOf("0.0.0.0/0", "::/0")))
         val argv = fake.commands.map { it.first }
         // Teardown best-effort comes first, then link creation.
-        assertEquals(listOf("ip", "link", "add", "pia0", "type", "wireguard"), argv[3])
+        assertEquals(listOf("ip", "link", "add", "aip0", "type", "wireguard"), argv[3])
         // Private key on stdin, never in argv.
         val keyCmd = fake.commands.first { "private-key" in it.first }
         assertFalse(keyCmd.first.any { "PRIVKEY" in it })
@@ -52,7 +52,7 @@ class TunnelOpsTest {
             listOf(
                 listOf("ip", "rule", "del", "not", "fwmark", "51820", "table", "100", "priority", "500"),
                 listOf("ip", "route", "flush", "table", "100"),
-                listOf("ip", "link", "del", "pia0"),
+                listOf("ip", "link", "del", "aip0"),
             ),
             fake.commands.map { it.first },
         )

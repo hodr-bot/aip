@@ -5,3 +5,5 @@ out/
 .env
 dist/
 local.properties
+/result
+/result-*

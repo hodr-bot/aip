@@ -1,5 +1,5 @@
 {
-  description = "AIP PIA VPN client: privileged daemon plus Qt GUI";
+  description = "AIP VPN client: privileged daemon plus Qt GUI";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -10,12 +10,12 @@
     in
     {
       packages = forAll (pkgs: {
-        pia-daemon = pkgs.callPackage ./nix/packages/pia-daemon.nix { };
-        pia-gui = pkgs.callPackage ./nix/packages/pia-gui.nix { };
-        default = self.packages.${pkgs.system}.pia-daemon;
+        aip-daemon = pkgs.callPackage ./nix/packages/aip-daemon.nix { };
+        aip-gui = pkgs.callPackage ./nix/packages/aip-gui.nix { };
+        default = self.packages.${pkgs.system}.aip-daemon;
       });
 
-      nixosModules.pia-client = import ./nix/modules/pia-client.nix;
+      nixosModules.aip-client = import ./nix/modules/aip-client.nix;
 
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {

@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
@@ -21,7 +21,7 @@ import java.nio.file.attribute.PosixFilePermission
  * Single-tunnel commands hit the default tunnel; UP/DOWN/LIST and the
  * optional [name] address one tunnel of a multi-tunnel manager.
  */
-class PiadServer(
+class AipdServer(
     private val engine: DaemonEngine,
     private val store: FileTokenStore,
     private val socketPath: java.nio.file.Path,
@@ -51,7 +51,7 @@ class PiadServer(
         }
         channel = server
         running = true
-        Thread({ acceptLoop(server) }, "piad-accept").apply { isDaemon = true }.start()
+        Thread({ acceptLoop(server) }, "aipd-accept").apply { isDaemon = true }.start()
     }
 
     fun stop() {

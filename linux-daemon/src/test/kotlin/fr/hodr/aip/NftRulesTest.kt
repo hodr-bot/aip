@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -17,7 +17,7 @@ class NftRulesTest {
         val rules = NftRules.build(base)
         assertTrue("policy drop" in rules)
         assertTrue("hook forward" in rules)
-        assertTrue("oifname \"pia0\" accept" in rules)
+        assertTrue("oifname \"aip0\" accept" in rules)
     }
 
     @Test
@@ -30,14 +30,14 @@ class NftRulesTest {
     @Test
     fun dnsOffTunnelIsDropped() {
         val rules = NftRules.build(base)
-        assertTrue("oifname != \"pia0\" udp dport { 53, 853 } drop" in rules)
-        assertTrue("oifname != \"pia0\" tcp dport { 53, 853 } drop" in rules)
+        assertTrue("oifname != \"aip0\" udp dport { 53, 853 } drop" in rules)
+        assertTrue("oifname != \"aip0\" tcp dport { 53, 853 } drop" in rules)
     }
 
     @Test
     fun ipv6OffTunnelIsDropped() {
         val rules = NftRules.build(base)
-        assertTrue("meta nfproto ipv6 oifname != \"pia0\" drop" in rules)
+        assertTrue("meta nfproto ipv6 oifname != \"aip0\" drop" in rules)
     }
 
     @Test

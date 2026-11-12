@@ -9,7 +9,7 @@ tokens instead of managing the 24 h token lifetime sanely.
 
 Three pieces sharing one negotiation heart:
 
-- **`pia-core`** (`src/commonMain`) — pure-Kotlin shared logic: token model
+- **`aip-core`** (`src/commonMain`) — pure-Kotlin shared logic: token model
   with 12 h refresh (24 h PIA expiry never hit), region pick, WireGuard
   config builder, fail-closed kill-switch decision. Stdlib only, no platform
   dependencies: HTTP, storage and clock are injected ports (`Ports.kt`).
@@ -26,7 +26,7 @@ Three pieces sharing one negotiation heart:
   (`PiaClient.ensureValidToken`).
 - Server list with lowest-latency pick (`ServerCatalog`, `RegionPicker`).
 - Per-connection WireGuard key negotiation (`addKey` mirrors
-  `pia-foss/manual-connections`).
+  `aip-foss/manual-connections`).
 - Fail-closed kill-switch decision (`KillSwitch.decide`): `BLOCK_ALL` when
   disconnected with kill-switch on, `ALLOW_LAN_ONLY` when off, `ALLOW_ALL`
   only once connected.
@@ -41,18 +41,18 @@ Three pieces sharing one negotiation heart:
 ## Repo layout
 
 ```
-src/commonMain/kotlin/pia/core/   pia-core: Token, PiaClient, Ports,
+src/commonMain/kotlin/pia/core/   aip-core: Token, PiaClient, Ports,
                                   ServerCatalog, WireGuard, KillSwitch
 src/jvmTest/kotlin/pia/core/      headless tests (stdlib + kotlin-test)
 android-app/                      Android VpnService app (fr.hodr.aip)
 android-adapter/                  Android adapter + its tests
-extension/firefox/                Firefox extension (consumes pia-core.js)
+extension/firefox/                Firefox extension (consumes aip-core.js)
 docs/                             INSTALL-android.md, INSTALL-firefox.md,
                                   CONSTRAINED-NETWORK.md
 ```
 
 Kotlin Multiplatform (`jvm` + `js(IR)`), Kotlin 2.0.21. No Android target
-in `pia-core`, no karma, no `jsTest` sources.
+in `aip-core`, no karma, no `jsTest` sources.
 
 ## Headless test gate
 
@@ -60,7 +60,7 @@ in `pia-core`, no karma, no `jsTest` sources.
 gradle jvmTest
 ```
 
-Runs the `pia-core` unit tests on the JVM. Must stay green before any
+Runs the `aip-core` unit tests on the JVM. Must stay green before any
 device or browser testing.
 
 ## Android build
@@ -75,7 +75,7 @@ gradle :android-app:assembleDebug
 
 Debug APKs (per-ABI splits) land in
 `android-app/build/outputs/apk/debug/`. The `preBuild` task rebuilds the
-`pia-core` JVM jar first, so the app never embeds a stale core.
+`aip-core` JVM jar first, so the app never embeds a stale core.
 
 ## Install
 
