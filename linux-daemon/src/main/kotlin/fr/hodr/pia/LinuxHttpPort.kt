@@ -11,6 +11,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
 import pia.core.Clock
 import pia.core.HttpPort
+import pia.core.PiaAuthError
 
 /**
  * OkHttp-free [HttpPort] backed by java.net.HttpURLConnection.
@@ -64,6 +65,9 @@ class LinuxHttpPort : HttpPort {
             ?: throw java.io.IOException("HTTP $code with empty body")
         BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
             val body = reader.readText()
+            if (code == 401 || code == 403) {
+                throw PiaAuthError("HTTP $code (bad credentials or rate-limited)")
+            }
             if (code !in 200..299) {
                 throw java.io.IOException("HTTP $code")
             }

@@ -2,6 +2,7 @@ package fr.hodr.pia
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.PosixFilePermission
 import java.security.KeyPairGenerator
 import java.security.interfaces.XECPrivateKey
@@ -226,6 +227,12 @@ class DaemonEngine(
         return try {
             val raw = catalog.fetchRaw()
             val servers = catalog.parseBody(raw)
+            // Never cache a body that is empty or carries trailing garbage:
+            // a corrupt cache poisons every offline fallback after it.
+            val trimmed = raw.trim()
+            if (servers.isEmpty() || !trimmed.endsWith("}")) {
+                throw PiaApiError("server list body failed strict validation")
+            }
             state.serversRaw = raw
             state.save()
             servers
@@ -356,7 +363,11 @@ class EngineState(private val path: Path) {
         val raw = serversRaw ?: return
         val dir = path.parent ?: return
         Files.createDirectories(dir)
-        Files.writeString(dir.resolve("servers.json"), raw, Charsets.UTF_8)
+        // Atomic tmp+move: concurrent serve/connect processes never leave
+        // a torn file behind for the next offline fallback.
+        val tmp = dir.resolve("servers.json.tmp")
+        Files.writeString(tmp, raw, Charsets.UTF_8)
+        Files.move(tmp, dir.resolve("servers.json"), StandardCopyOption.ATOMIC_MOVE)
     }
 
     private fun loadServersRaw(): String? {

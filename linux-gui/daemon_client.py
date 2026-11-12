@@ -22,19 +22,24 @@ class DaemonClient:
         self.timeout = timeout
 
     def send(self, command: str) -> str:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.settimeout(self.timeout)
-            sock.connect(self.socket_path)
-            sock.sendall((command + "\n").encode("utf-8"))
-            chunks = []
-            while True:
-                data = sock.recv(4096)
-                if not data:
-                    break
-                chunks.append(data)
-                if b"\n" in data:
-                    break
-            return b"".join(chunks).decode("utf-8").strip()
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(self.timeout)
+                sock.connect(self.socket_path)
+                sock.sendall((command + "\n").encode("utf-8"))
+                chunks = []
+                while True:
+                    data = sock.recv(4096)
+                    if not data:
+                        break
+                    chunks.append(data)
+                    if b"\n" in data:
+                        break
+                return b"".join(chunks).decode("utf-8").strip()
+        except OSError as exc:
+            # Daemon down, socket missing, connection refused: one error
+            # type so the GUI fails closed to Off instead of crashing.
+            raise DaemonError(f"daemon unreachable: {exc.strerror or exc}") from exc
 
     def status(self) -> dict:
         return _parse_kv(self.send("STATUS"))
