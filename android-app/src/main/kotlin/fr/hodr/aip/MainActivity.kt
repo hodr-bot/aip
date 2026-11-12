@@ -60,6 +60,7 @@ class MainActivity : Activity() {
     private lateinit var connectButton: Button
     private lateinit var connectStatus: TextView
     private lateinit var errorDetail: TextView
+    private lateinit var systemStatus: TextView
     private lateinit var connectProgress: ProgressBar
     private lateinit var allowLanBox: CheckBox
 
@@ -140,6 +141,7 @@ class MainActivity : Activity() {
         }
         connectStatus = findViewById(R.id.connStatus)
         errorDetail = findViewById(R.id.errorDetail)
+        systemStatus = findViewById(R.id.systemStatus)
         connectProgress = findViewById(R.id.connectProgress)
         allowLanBox = findViewById(R.id.allowLan)
         findViewById<TextView>(R.id.appVersion).text =
@@ -690,6 +692,18 @@ class MainActivity : Activity() {
         connectProgress.visibility = if (active) View.VISIBLE else View.GONE
     }
 
+    /** True when Android itself blocks traffic without our VPN. */
+    private fun systemKillSwitchOn(): Boolean {
+        if (Build.VERSION.SDK_INT < 29) return false
+        return try {
+            val alwaysOn = Settings.Secure.getString(contentResolver, "always_on_vpn_app")
+            val lockdown = Settings.Secure.getInt(contentResolver, "always_on_vpn_lockdown", 0)
+            alwaysOn == packageName && lockdown == 1
+        } catch (error: Exception) {
+            false
+        }
+    }
+
     /** Hero button + status pill follow the persisted vpn state. */
     private fun updateConnectState() {
         val (stored, serverId, aliveAt) = readVpnState()
@@ -706,6 +720,16 @@ class MainActivity : Activity() {
         if (watchdogFired) {
             setConnecting(false)
         }
+        // The real system state, not a guess: Always-on for us plus the
+        // Block toggle. If this reads off, traffic flows without VPN and no
+        // app can change that except the system settings.
+        if (systemKillSwitchOn()) {
+            systemStatus.text = "System kill switch on"
+            systemStatus.setTextColor(getColor(R.color.pia_muted))
+        } else {
+            systemStatus.text = "System kill switch off"
+            systemStatus.setTextColor(getColor(R.color.pia_error))
+        }
         val current = selected
         val connectedTitle = serverId?.let { id ->
             servers.firstOrNull { it.id == id }?.let { ServerLabels.label(it) }
@@ -717,7 +741,9 @@ class MainActivity : Activity() {
                 if (!connecting) {
                     connectStatus.text = "Disconnected"
                     errorDetail.text = readLastError()?.takeIf { it.isNotBlank() }
-                        ?: if (watchdogFired) "Tap CONNECT to retry" else ""
+                        ?: if (watchdogFired) "Tap CONNECT to retry"
+                        else if (!systemKillSwitchOn()) "System kill switch off, turn on Block connections without VPN"
+                        else ""
                 } else {
                     connectStatus.text = "Connecting…"
                     errorDetail.text = ""

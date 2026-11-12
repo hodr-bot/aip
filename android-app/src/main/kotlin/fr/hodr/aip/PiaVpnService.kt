@@ -471,10 +471,17 @@ class PiaVpnService : VpnService() {
      * and a fresh addKey lease. Stops the service when nothing stored.
      */
     private fun restoreLease(intentAllowLan: Boolean) {
-        // Auto-restart path (boot, Always-on, link flap): a user stop or a
-        // fresh give-up stays down. Only a CONNECT tap dials again.
-        if (isUserStopped() || giveUpActive()) {
+        // Auto-restart path (boot, Always-on, link flap): a user stop stays
+        // down, only a CONNECT tap dials again. A recovery cooldown parks
+        // instead of stopping: the link callback must survive to see the
+        // next air, the watchdog stays quiet meanwhile.
+        if (isUserStopped()) {
             stopSelf()
+            return
+        }
+        if (giveUpActive()) {
+            parkedForNoNetwork = true
+            goForeground()
             return
         }
         val store = PrefsTokenStore(this)
@@ -971,9 +978,12 @@ class PiaVpnService : VpnService() {
             return
         }
         if (parkedForNoNetwork && !connecting && (!wasUsable || !wasValidated)) {
-            // A user stop or a fresh give-up stays down even when the link
-            // flaps. Only a CONNECT tap dials again.
-            if (isUserStopped() || giveUpActive()) return
+            // A user stop stays down even when the link flaps. A genuinely
+            // new link clears a recovery cooldown: the air came back, the
+            // retry below is not a watchdog tick. Only a CONNECT tap dials
+            // otherwise.
+            if (isUserStopped()) return
+            clearGiveUp()
             parkedForNoNetwork = false
             val resumeAllowLan = lastAllowLan
             Thread { restoreLease(resumeAllowLan) }.start()
@@ -1141,7 +1151,9 @@ class PiaVpnService : VpnService() {
                         lastStatus = now
                         refreshStatus()
                     }
-                    if (!linkUsable) {
+                    // Cooldown after giving up: the watchdog stays quiet. A
+                    // user tap or a genuinely new link clears it.
+                    if (!giveUpActive() && !linkUsable) {
                         // Link dead or gone: NO probes (zero radio burn), just
                         // show the pause. Past 60s of dead link a live tunnel
                         // is useless — WireGuard would re-handshake forever —
@@ -1154,7 +1166,7 @@ class PiaVpnService : VpnService() {
                             writeState(false, watchedServer, "Paused, no network")
                             goForeground()
                         }
-                    } else if (now - lastVerify >= 60_000 || forceVerify) {
+                    } else if (!giveUpActive() && (now - lastVerify >= 60_000 || forceVerify)) {
                         forceVerify = false
                         lastVerify = now
                         if (now - lastCacheRefreshMs >= 12 * 3_600_000L) {
@@ -1286,13 +1298,20 @@ class PiaVpnService : VpnService() {
         return backend != null && tunnel != null && !trafficStalled && !parkedForNoNetwork
     }
 
-    /** Nothing cached answers: honest state, one alert, back off. */
+    /**
+     * Nothing cached answers: honest state, one alert, then park (stay
+     * alive). Stopping here would leave no link observer: an airplane
+     * cycle while dead would never resume on its own. Parked, the link
+     * callback retries when the air comes back; the watchdog stays quiet
+     * through the cooldown. A CONNECT tap retries at once.
+     */
     private fun giveUp(serverId: String?) {
         bringDown()
+        parkedForNoNetwork = true
         val msg = "Server unreachable, tap CONNECT to retry"
         writeState(false, serverId, msg)
+        goForeground()
         postAlert("AIP VPN tunnel down", "Disconnected: $msg")
-        stopSelf()
     }
 
     private fun failTraffic(
