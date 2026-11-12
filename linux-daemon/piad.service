@@ -1,0 +1,24 @@
+[Unit]
+Description=AIP PIA VPN daemon (WireGuard + fail-closed kill switch)
+After=network-pre.target
+Before=network-online.target
+Wants=network-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/piad serve
+Environment=PIAD_STATE_DIR=/var/lib/piad
+Restart=on-failure
+RestartSec=5
+# Privilege boundary: root owns the tunnel and nftables, nobody else.
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+StateDirectory=piad
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

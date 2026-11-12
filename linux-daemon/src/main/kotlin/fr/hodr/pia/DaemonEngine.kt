@@ -82,6 +82,15 @@ class DaemonEngine(
         return dial(++generation)
     }
 
+    fun setAllowLan(on: Boolean): Boolean {
+        state.allowLan = on
+        state.save()
+        if (status == Status.UP) return dial(++generation)
+        return true
+    }
+
+    fun serverList(): List<pia.core.ServerEntry> = freshServers()
+
     /**
      * Periodic tick from the link monitor. Returns true when a dial was
      * attempted. Pure policy: the caller supplies link/probe readings.
