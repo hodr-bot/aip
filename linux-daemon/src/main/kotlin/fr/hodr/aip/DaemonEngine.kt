@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -109,7 +109,7 @@ class DaemonEngine(
     /**
      * Toggle port forwarding; enabling on a live tunnel binds immediately
      * without redial. [hook] is the Post-Port-Up shell command, run with
-     * PIAD_PORT set on every (re)bind.
+     * AIPD_PORT set on every (re)bind.
      */
     fun setPortForward(on: Boolean, hook: String?): Boolean {
         state.portForward = on

@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 /**
  * Shell seam: every privileged command goes through here so unit tests can
@@ -12,7 +12,7 @@ interface CommandRunner {
 
     fun run(argv: List<String>, stdin: String? = null): Result
 
-    /** Run a Post-Port-Up style shell hook with extra env (e.g. PIAD_PORT). */
+    /** Run a Post-Port-Up style shell hook with extra env (e.g. AIPD_PORT). */
     fun runShell(command: String, env: Map<String, String>): Result
 }
 

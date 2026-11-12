@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
@@ -11,7 +11,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class PiadServerTest {
+class AipdServerTest {
     private companion object {
         val serversBody = """
         {"regions":[
@@ -54,8 +54,8 @@ class PiadServerTest {
         }
     }
 
-    private fun server(): Triple<PiadServer, Client, DaemonEngine> {
-        val dir = Files.createTempDirectory("piad-srv")
+    private fun server(): Triple<AipdServer, Client, DaemonEngine> {
+        val dir = Files.createTempDirectory("aipd-srv")
         val http = FakeHttp()
         val store = FileTokenStore(dir.resolve("auth"))
         store.saveCredentials("user", "pass")
@@ -66,9 +66,9 @@ class PiadServerTest {
             tunnel = TunnelOps(FakeRunner()),
             state = EngineState(dir.resolve("state.properties")),
         )
-        val server = PiadServer(engine, store, dir.resolve("piad.sock"))
+        val server = AipdServer(engine, store, dir.resolve("aipd.sock"))
         server.start()
-        return Triple(server, Client(dir.resolve("piad.sock")), engine)
+        return Triple(server, Client(dir.resolve("aipd.sock")), engine)
     }
 
     @Test
@@ -91,7 +91,7 @@ class PiadServerTest {
 
     @Test
     fun multiTunnelSocketCommands() {
-        val dir = Files.createTempDirectory("piad-multi")
+        val dir = Files.createTempDirectory("aipd-multi")
         val runner = FakeRunner()
         val mgr = TunnelManager(
             TunnelConfigs.parse("[tunnel.a]\nserver = testland\n[tunnel.b]\nserver = testland"),
@@ -100,9 +100,9 @@ class PiadServerTest {
         )
         val store = FileTokenStore(dir.resolve("auth"))
         store.saveCredentials("user", "pass")
-        val server = PiadServer(mgr.default.engine, store, dir.resolve("piad.sock"), mgr)
+        val server = AipdServer(mgr.default.engine, store, dir.resolve("aipd.sock"), mgr)
         server.start()
-        val client = Client(dir.resolve("piad.sock"))
+        val client = Client(dir.resolve("aipd.sock"))
         try {
             val list = client.send("LIST")
             assertTrue(list.contains("a=DOWN"), list)

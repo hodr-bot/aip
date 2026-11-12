@@ -1,11 +1,11 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
- * piad entry point. Modes (single tunnel = first stanza, compat):
+ * aipd entry point. Modes (single tunnel = first stanza, compat):
  *   serve              run the daemon: socket server + link monitor
  *   connect [server]   dial the default tunnel now
  *   disconnect         keep the default tunnel down
@@ -17,13 +17,13 @@ import java.nio.file.Paths
  *   port               print the bound forwarded port (or -)
  *   status             print one line per tunnel
  *
- * Tunnels come from PIAD_TUNNELS, /etc/piad/tunnels.conf, or the state
+ * Tunnels come from AIPD_TUNNELS, /etc/aipd/tunnels.conf, or the state
  * dir's tunnels.conf. No config file means one default tunnel, exactly
- * the old behaviour. State dir defaults to /var/lib/piad, overridable
- * with PIAD_STATE_DIR (tests, portable installs).
+ * the old behaviour. State dir defaults to /var/lib/aipd, overridable
+ * with AIPD_STATE_DIR (tests, portable installs).
  */
 fun main(args: Array<String>) {
-    val dir = Paths.get(System.getenv("PIAD_STATE_DIR") ?: "/var/lib/piad")
+    val dir = Paths.get(System.getenv("AIPD_STATE_DIR") ?: "/var/lib/aipd")
     val mgr = loadManager(dir)
     val engine = mgr.default.engine
     val store = FileTokenStore(dir.resolve("auth"))
@@ -41,7 +41,7 @@ fun main(args: Array<String>) {
         "up" -> {
             val name = args.getOrNull(1)
             if (name.isNullOrEmpty()) {
-                System.err.println("usage: piad up <tunnel> [serverId]")
+                System.err.println("usage: aipd up <tunnel> [serverId]")
                 kotlin.system.exitProcess(2)
             }
             val ok = mgr.up(name, args.getOrNull(2))
@@ -52,7 +52,7 @@ fun main(args: Array<String>) {
         "down" -> {
             val name = args.getOrNull(1)
             if (name.isNullOrEmpty() || !mgr.down(name)) {
-                System.err.println("usage: piad down <tunnel>")
+                System.err.println("usage: aipd down <tunnel>")
                 kotlin.system.exitProcess(2)
             }
             println("down $name")
@@ -61,7 +61,7 @@ fun main(args: Array<String>) {
             val user = args.getOrNull(1)
             val pass = args.getOrNull(2)
             if (user.isNullOrEmpty() || pass.isNullOrEmpty()) {
-                System.err.println("usage: piad login user pass")
+                System.err.println("usage: aipd login user pass")
                 kotlin.system.exitProcess(2)
             }
             store.saveCredentials(user, pass)
@@ -73,8 +73,8 @@ fun main(args: Array<String>) {
             println("port=${mgr.tunnels[name]?.engine?.forwardedPort ?: "-"}")
         }
         "pf" -> {
-            // piad pf on [hook]            -> default tunnel (compat)
-            // piad pf <tunnel> on [hook]   -> named tunnel, hook may hold spaces
+            // aipd pf on [hook]            -> default tunnel (compat)
+            // aipd pf <tunnel> on [hook]   -> named tunnel, hook may hold spaces
             val (target, sub, hook) = if (args.getOrNull(1)?.lowercase() in listOf("on", "off")) {
                 Triple(engine, args.getOrNull(1), args.drop(2).joinToString(" ").ifEmpty { null })
             } else {
@@ -82,7 +82,7 @@ fun main(args: Array<String>) {
                 Triple(named, args.getOrNull(2), args.drop(3).joinToString(" ").ifEmpty { null })
             }
             if (target == null) {
-                System.err.println("usage: piad pf on [hook]|off, piad pf <tunnel> on [hook]|off")
+                System.err.println("usage: aipd pf on [hook]|off, aipd pf <tunnel> on [hook]|off")
                 kotlin.system.exitProcess(2)
             }
             when (sub?.lowercase()) {
@@ -95,13 +95,13 @@ fun main(args: Array<String>) {
                     println("port=-")
                 }
                 else -> {
-                    System.err.println("usage: piad pf on [hook]|off, piad pf <tunnel> on [hook]|off")
+                    System.err.println("usage: aipd pf on [hook]|off, aipd pf <tunnel> on [hook]|off")
                     kotlin.system.exitProcess(2)
                 }
             }
         }
         else -> {
-            System.err.println("usage: piad [serve|connect [serverId]|disconnect|up <tunnel> [serverId]|down <tunnel>|login user pass|pf on [hook]|off|port|status]")
+            System.err.println("usage: aipd [serve|connect [serverId]|disconnect|up <tunnel> [serverId]|down <tunnel>|login user pass|pf on [hook]|off|port|status]")
             kotlin.system.exitProcess(2)
         }
     }
@@ -109,8 +109,8 @@ fun main(args: Array<String>) {
 
 private fun loadManager(dir: Path): TunnelManager {
     val candidates = listOf(
-        System.getenv("PIAD_TUNNELS")?.let { Paths.get(it) },
-        Paths.get("/etc/piad/tunnels.conf"),
+        System.getenv("AIPD_TUNNELS")?.let { Paths.get(it) },
+        Paths.get("/etc/aipd/tunnels.conf"),
         dir.resolve("tunnels.conf"),
     ).filterNotNull()
     val file = candidates.firstOrNull { Files.isRegularFile(it) }
@@ -128,7 +128,9 @@ private fun loadManager(dir: Path): TunnelManager {
 
 private fun serve(mgr: TunnelManager, store: FileTokenStore, dir: Path) {
     val runner = ProcessCommandRunner()
-    val server = PiadServer(mgr.default.engine, store, dir.resolve("piad.sock"), mgr)
+    val socketPath = Paths.get(System.getenv("AIPD_SOCKET") ?: "/run/aipd/aipd.sock")
+    Files.createDirectories(socketPath.parent)
+    val server = AipdServer(mgr.default.engine, store, socketPath, mgr)
     server.start()
     mgr.restore()
     while (true) {

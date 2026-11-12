@@ -13,7 +13,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("fr.hodr.pia.DaemonMainKt")
+    mainClass.set("fr.hodr.aip.DaemonMainKt")
 }
 
 tasks.test {

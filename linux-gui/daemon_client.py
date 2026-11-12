@@ -1,6 +1,6 @@
-"""Talk to piad over its Unix socket. One command per connection, one line back.
+"""Talk to aipd over its Unix socket. One command per connection, one line back.
 
-Protocol (see linux-daemon PiadServer):
+Protocol (see linux-daemon AipdServer):
   STATUS            -> status=UP server=testland error=-
   CONNECT [server]  -> OK | FAIL <reason>
   DISCONNECT        -> OK

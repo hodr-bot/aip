@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermission
@@ -10,7 +10,7 @@ import kotlin.test.assertNull
 class FileTokenStoreTest {
     @Test
     fun credentialsAndTokenRoundTrip() {
-        val dir = Files.createTempDirectory("piad-test")
+        val dir = Files.createTempDirectory("aipd-test")
         val store = FileTokenStore(dir.resolve("auth"))
         assertNull(store.loadUsername())
         assertNull(store.loadToken())
@@ -26,7 +26,7 @@ class FileTokenStoreTest {
 
     @Test
     fun storeFileIsOwnerOnly() {
-        val dir = Files.createTempDirectory("piad-test")
+        val dir = Files.createTempDirectory("aipd-test")
         val file = dir.resolve("auth")
         val store = FileTokenStore(file)
         store.saveCredentials("user", "pass")

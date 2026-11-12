@@ -1,10 +1,10 @@
-"""Qt6/QML front end for piad. Qt imports live here only; daemon_client
+"""Qt6/QML front end for aipd. Qt imports live here only; daemon_client
 stays stdlib so the protocol is testable without Qt."""
 
 import os
 import sys
 
-SOCKET = os.environ.get("PIAD_SOCKET", "/run/piad/piad.sock")
+SOCKET = os.environ.get("AIPD_SOCKET", "/run/aipd/aipd.sock")
 
 try:
     from PySide6.QtCore import QObject, Property, Signal, Slot
@@ -104,7 +104,7 @@ if HAS_QT:
 
 def main():
     if not HAS_QT:
-        print("PySide6 is not installed; install the pia-gui package.", file=sys.stderr)
+        print("PySide6 is not installed; install the aip-gui package.", file=sys.stderr)
         return 2
     app = QApplication(sys.argv)
     client = DaemonClient(SOCKET)

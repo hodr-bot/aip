@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.nio.file.Path
 import pia.core.Clock
@@ -9,7 +9,7 @@ import pia.core.ServerCatalog
 /**
  * Owns one [DaemonEngine] per tunnel stanza and merges every live tunnel
  * into a single fail-closed nftables ruleset. Each tunnel gets its own
- * interface (pia-<name>), routing table and fwmark, plus its own state
+ * interface (aip-<name>), routing table and fwmark, plus its own state
  * directory, so keys, leases and the forwarded port never cross.
  *
  * The kill switch stays merged: every engine reports its params through
@@ -39,9 +39,9 @@ class TunnelManager(
         if (spec.portForward) state.portForward = true
         if (spec.postPortUp != null) state.postPortUp = spec.postPortUp
         if (spec.allowLan) state.allowLan = true
-        val ops = TunnelOps(runner, iface = "pia-${spec.name}", table = 100 + index, fwmark = 51820 + index)
+        val ops = TunnelOps(runner, iface = "aip-${spec.name}", table = 100 + index, fwmark = 51820 + index)
         val pf = PortForward(client, clock) { port, _ ->
-            state.postPortUp?.let { hook -> runner.runShell(hook, mapOf("PIAD_PORT" to port.toString())) }
+            state.postPortUp?.let { hook -> runner.runShell(hook, mapOf("AIPD_PORT" to port.toString())) }
         }
         val engine = DaemonEngine(
             client = client,

@@ -54,7 +54,7 @@ ApplicationWindow {
             Button { text: "Refresh"; flat: true; onClicked: backend.refresh() }
             Button { text: "Account"; flat: true; onClicked: tabBar.currentIndex = 3 }
             Item { Layout.fillWidth: true }
-            Label { text: "piad"; color: "#9DB09A"; font.pointSize: 8 }
+            Label { text: "aipd"; color: "#9DB09A"; font.pointSize: 8 }
         }
     }
 
@@ -200,8 +200,8 @@ ApplicationWindow {
         // ---- Account ----
         ColumnLayout {
             spacing: 8
-            TextField { id: username; placeholderText: "PIA username"; Layout.fillWidth: true }
-            TextField { id: password; placeholderText: "PIA password"; echoMode: TextInput.Password; Layout.fillWidth: true }
+            TextField { id: username; placeholderText: "Username"; Layout.fillWidth: true }
+            TextField { id: password; placeholderText: "Password"; echoMode: TextInput.Password; Layout.fillWidth: true }
             Button {
                 text: "Log in"
                 Layout.fillWidth: true

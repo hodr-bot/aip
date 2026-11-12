@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -10,7 +10,7 @@ import pia.core.TokenStore
 /**
  * [TokenStore] over a root-only properties file (0600). Credentials live
  * here, never in the lease cache and never on D-Bus. The path is injected
- * so tests can point at a temp dir; production uses /var/lib/piad/auth.
+ * so tests can point at a temp dir; production uses /var/lib/aipd/auth.
  */
 class FileTokenStore(private val path: Path) : TokenStore {
     override fun loadUsername(): String? = props().getProperty("username")

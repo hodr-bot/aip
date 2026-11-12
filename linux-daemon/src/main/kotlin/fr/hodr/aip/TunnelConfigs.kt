@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 /**
  * One tunnel stanza from tunnels.conf, ini style:

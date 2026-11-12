@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

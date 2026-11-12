@@ -1,4 +1,4 @@
-package fr.hodr.pia
+package fr.hodr.aip
 
 import java.nio.file.Files
 import kotlin.test.Test
@@ -11,7 +11,7 @@ class TunnelManagerTest {
         text: String = "[tunnel.a]\nserver = testland\n[tunnel.b]\nserver = testland\nauto-connect = false",
         runner: FakeRunner = FakeRunner(),
     ): Pair<TunnelManager, FakeRunner> {
-        val dir = Files.createTempDirectory("piad-mgr")
+        val dir = Files.createTempDirectory("aipd-mgr")
         val m = TunnelManager(TunnelConfigs.parse(text), dir, runner = runner)
         return m to runner
     }
@@ -45,14 +45,14 @@ class TunnelManagerTest {
     fun mergedRulesetHoldsBothTunnels() {
         val rules = NftRules.buildMulti(
             listOf(
-                NftParams("1.2.3.4", 1337, emptyList(), false, iface = "pia-a"),
-                NftParams("5.6.7.8", 1337, listOf("10.0.0.243"), true, iface = "pia-b"),
+                NftParams("1.2.3.4", 1337, emptyList(), false, iface = "aip-a"),
+                NftParams("5.6.7.8", 1337, listOf("10.0.0.243"), true, iface = "aip-b"),
             ),
         )
-        assertTrue("iifname { \"pia-a\", \"pia-b\" } accept" in rules, rules)
+        assertTrue("iifname { \"aip-a\", \"aip-b\" } accept" in rules, rules)
         assertTrue("ip daddr 1.2.3.4 udp dport 1337 accept" in rules, rules)
         assertTrue("ip daddr 5.6.7.8 udp dport 1337 accept" in rules, rules)
-        assertTrue("oifname { \"pia-a\", \"pia-b\" } accept" in rules, rules)
+        assertTrue("oifname { \"aip-a\", \"aip-b\" } accept" in rules, rules)
     }
 
     @Test

@@ -2,24 +2,24 @@
 
 with lib;
 
-let cfg = config.services.pia-client; in
+let cfg = config.services.aip-client; in
 {
-  options.services.pia-client = {
-    enable = mkEnableOption "AIP PIA VPN client daemon";
+  options.services.aip-client = {
+    enable = mkEnableOption "AIP VPN client daemon";
     package = mkOption {
       type = types.package;
-      default = pkgs.callPackage ./../packages/pia-daemon.nix { };
-      description = "piad package to run.";
+      default = pkgs.callPackage ./../packages/aip-daemon.nix { };
+      description = "aipd package to run.";
     };
     interface = mkOption {
       type = types.str;
-      default = "pia0";
-      description = "Legacy informational value. Real interfaces are pia-<tunnel> (pia-default with no tunnels.conf).";
+      default = "aip0";
+      description = "Legacy informational value. Real interfaces are aip-<tunnel> (aip-default with no tunnels.conf).";
     };
     credentialsFile = mkOption {
       type = types.path;
-      example = "/etc/pia-client.env";
-      description = "File holding PIA_USER and PIA_PASS (mode 0600, never in the store).";
+      example = "/etc/aip-client.env";
+      description = "File holding AIPD_USER and AIPD_PASS (mode 0600, never in the store).";
     };
     killSwitch = mkOption {
       type = types.bool;
@@ -49,7 +49,7 @@ let cfg = config.services.pia-client; in
           portForward = mkOption {
             type = types.bool;
             default = false;
-            description = "Enable PIA port forwarding on this tunnel.";
+            description = "Enable provider port forwarding on this tunnel.";
           };
           allowLan = mkOption {
             type = types.bool;
@@ -65,7 +65,7 @@ let cfg = config.services.pia-client; in
             type = types.nullOr types.str;
             default = null;
             example = "/usr/local/bin/qbit-port.sh";
-            description = "Hook run with PIAD_PORT set on every (re)bind.";
+            description = "Hook run with AIPD_PORT set on every (re)bind.";
           };
         };
       });
@@ -77,7 +77,7 @@ let cfg = config.services.pia-client; in
           postPortUp = "/usr/local/bin/qbit-port.sh";
         };
       };
-      description = "Tunnels to manage, rendered to /etc/piad/tunnels.conf. Empty means one default tunnel.";
+      description = "Tunnels to manage, rendered to /etc/aipd/tunnels.conf. Empty means one default tunnel.";
     };
   };
 
@@ -85,15 +85,15 @@ let cfg = config.services.pia-client; in
     assertions = [
       {
         assertion = cfg.killSwitch -> config.networking.nftables.enable;
-        message = "services.pia-client killSwitch needs networking.nftables.enable.";
+        message = "services.aip-client killSwitch needs networking.nftables.enable.";
       }
       {
         assertion = builtins.all (n: builtins.match "[a-z0-9-]{1,11}" n != null) (builtins.attrNames cfg.tunnels);
-        message = "services.pia-client tunnels names: a-z, 0-9, -, max 11 chars (interface pia-<name>).";
+        message = "services.aip-client tunnels names: a-z, 0-9, -, max 11 chars (interface aip-<name>).";
       }
     ];
 
-    environment.etc."piad/tunnels.conf" = mkIf (cfg.tunnels != { }) {
+    environment.etc."aipd/tunnels.conf" = mkIf (cfg.tunnels != { }) {
       mode = "0644";
       text = lib.concatStringsSep "\n" (
         lib.flatten (
@@ -110,8 +110,8 @@ let cfg = config.services.pia-client; in
       );
     };
 
-    systemd.services.pia-client = {
-      description = "AIP PIA VPN daemon";
+    systemd.services.aip-client = {
+      description = "AIP VPN daemon";
       after = [ "network-pre.target" ];
       before = [ "network-online.target" ];
       wants = [ "network-pre.target" ];
@@ -119,7 +119,7 @@ let cfg = config.services.pia-client; in
       restartTriggers = [ cfg.package ];
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${cfg.package}/bin/piad serve";
+        ExecStart = "${cfg.package}/bin/aipd serve";
         EnvironmentFile = cfg.credentialsFile;
         Restart = "on-failure";
         RestartSec = 5;
@@ -129,7 +129,7 @@ let cfg = config.services.pia-client; in
         ProtectHome = true;
         PrivateTmp = true;
         NoNewPrivileges = true;
-        StateDirectory = "piad";
+        StateDirectory = "aipd";
         StateDirectoryMode = "0700";
       };
     };
@@ -138,11 +138,11 @@ let cfg = config.services.pia-client; in
       let
         names = if cfg.tunnels == { } then [ "default" ] else builtins.attrNames cfg.tunnels;
         sel = if builtins.length names == 1
-          then "\"pia-${builtins.head names}\""
-          else "{ ${lib.concatMapStringsSep ", " (n: "\"pia-${n}\"") names} }";
+          then "\"aip-${builtins.head names}\""
+          else "{ ${lib.concatMapStringsSep ", " (n: "\"aip-${n}\"") names} }";
       in
       mkIf cfg.killSwitch ''
-        table inet pia {
+        table inet aip {
           chain input { type filter hook input priority 0; policy drop;
             iif "lo" accept; ct state established,related accept; iifname ${sel} accept; }
           chain output { type filter hook output priority 0; policy drop;

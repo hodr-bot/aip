@@ -1,4 +1,4 @@
-"""Tests for daemon_client against a fake piad socket server. stdlib only."""
+"""Tests for daemon_client against a fake aipd socket server. stdlib only."""
 
 import os
 import socket
@@ -9,10 +9,10 @@ import unittest
 from daemon_client import DaemonClient, DaemonError
 
 
-class FakePiad:
+class FakeAipd:
     def __init__(self):
         self.dir = tempfile.mkdtemp()
-        self.path = os.path.join(self.dir, "piad.sock")
+        self.path = os.path.join(self.dir, "aipd.sock")
         self.replies = {
             "STATUS": "status=UP server=testland error=-",
             "CONNECT testland": "OK",
@@ -31,7 +31,7 @@ class FakePiad:
             if os.path.exists(self.path):
                 return
             threading.Event().wait(0.05)
-        raise RuntimeError("fake piad never bound")
+        raise RuntimeError("fake aipd never bound")
 
     def stop(self):
         self._stop.set()
@@ -69,7 +69,7 @@ class FakePiad:
 
 class ClientTest(unittest.TestCase):
     def setUp(self):
-        self.fake = FakePiad()
+        self.fake = FakeAipd()
         self.fake.start()
         self.client = DaemonClient(self.fake.path)
 

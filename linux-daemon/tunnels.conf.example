@@ -1,7 +1,7 @@
-# piad tunnels.conf — one [tunnel.<name>] per live tunnel.
-# Name: a-z, 0-9, -, max 11 chars. Interface becomes pia-<name>.
+# aipd tunnels.conf — one [tunnel.<name>] per live tunnel.
+# Name: a-z, 0-9, -, max 11 chars. Interface becomes aip-<name>.
 # Unknown keys are a hard error at startup; fix the typo, don't guess.
-# Lookup order: $PIAD_TUNNELS, /etc/piad/tunnels.conf, $PIAD_STATE_DIR/tunnels.conf.
+# Lookup order: $AIPD_TUNNELS, /etc/aipd/tunnels.conf, $AIPD_STATE_DIR/tunnels.conf.
 # No file at all means one default tunnel (old single-tunnel behaviour).
 
 [tunnel.boulot]
