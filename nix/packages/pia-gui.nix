@@ -10,8 +10,8 @@ stdenv.mkDerivation {
 
   installPhase = ''
     mkdir -p $out/share/pia-gui $out/bin
-    cp ../../linux-gui/daemon_client.py ../../linux-gui/pia_gui.py $out/share/pia-gui/
-    cp -r ../../linux-gui/qml $out/share/pia-gui/
+    cp linux-gui/daemon_client.py linux-gui/pia_gui.py $out/share/pia-gui/
+    cp -r linux-gui/qml $out/share/pia-gui/
     makeWrapper ${python3.withPackages (ps: [ ps.pyside6 ])}/bin/python $out/bin/pia-gui \
       --add-flags $out/share/pia-gui/pia_gui.py \
       --set QML_IMPORT_PATH ${qt6.qtdeclarative}/lib/qt-6/qml
