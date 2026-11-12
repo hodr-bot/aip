@@ -128,7 +128,7 @@ private fun loadManager(dir: Path): TunnelManager {
 
 private fun serve(mgr: TunnelManager, store: FileTokenStore, dir: Path) {
     val runner = ProcessCommandRunner()
-    val server = PiadServer(mgr.default.engine, store, dir.resolve("piad.sock"))
+    val server = PiadServer(mgr.default.engine, store, dir.resolve("piad.sock"), mgr)
     server.start()
     mgr.restore()
     while (true) {

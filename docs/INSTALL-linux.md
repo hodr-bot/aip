@@ -64,3 +64,51 @@ sudo systemctl daemon-reload && sudo systemctl restart pia-client
 ```
 
 Rollback is the previous Nix generation; NixOS uses `nixos-rebuild switch --rollback`.
+
+## 6. Port forwarding
+
+One command, hook optional:
+
+```sh
+piad pf on                                    # default tunnel, print the port
+piad pf on "/usr/local/bin/qbit-port.sh"      # hook, PIAD_PORT set on every (re)bind
+piad pf boulot on "/usr/local/bin/qbit-port.sh"
+piad port          # port=- when disabled
+piad pf off
+```
+
+The bind rides on the connected gateway (`getSignature` on port 1337,
+`bindPort` on 19999) and refreshes every 15 minutes. A failed bind never
+drops the tunnel — the port just reports `-` with the error in `status`.
+Socket: `PORTFORWARD [name] on [hook]|off`, `PORT [name]`.
+
+## 7. Multiple tunnels
+
+Copy `linux-daemon/tunnels.conf.example` to `/etc/piad/tunnels.conf`
+(or `$PIAD_STATE_DIR/tunnels.conf`, or point `PIAD_TUNNELS` at it):
+
+```ini
+[tunnel.boulot]
+server = nl_amsterdam
+port-forward = true
+post-port-up = /usr/local/bin/qbit-port.sh
+
+[tunnel.perso]
+server = ch_zurich
+auto-connect = false
+```
+
+Each tunnel gets `pia-<name>`, its own route table and fwmark, its own
+state dir — keys and leases never cross. The kill switch stays merged:
+one `nft -f` covers every live tunnel, and the last one going down
+leaves the closed table, never a hole.
+
+```sh
+piad up boulot [server]     # bring one tunnel up
+piad down boulot            # bring it down, re-merge the rules
+piad status                 # one line per tunnel
+```
+
+Socket: `UP name [server]`, `DOWN name`, `LIST`
+(`name=status:server:port;...`). NixOS: `services.pia-client.tunnels.<name>`
+renders the file for you (see `nix/modules/pia-client.nix`).

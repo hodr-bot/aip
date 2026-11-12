@@ -88,4 +88,31 @@ class PiadServerTest {
             server.stop()
         }
     }
+
+    @Test
+    fun multiTunnelSocketCommands() {
+        val dir = Files.createTempDirectory("piad-multi")
+        val runner = FakeRunner()
+        val mgr = TunnelManager(
+            TunnelConfigs.parse("[tunnel.a]\nserver = testland\n[tunnel.b]\nserver = testland"),
+            dir,
+            runner = runner,
+        )
+        val store = FileTokenStore(dir.resolve("auth"))
+        store.saveCredentials("user", "pass")
+        val server = PiadServer(mgr.default.engine, store, dir.resolve("piad.sock"), mgr)
+        server.start()
+        val client = Client(dir.resolve("piad.sock"))
+        try {
+            val list = client.send("LIST")
+            assertTrue(list.contains("a=DOWN"), list)
+            assertTrue(list.contains("b=DOWN"), list)
+            assertEquals("OK", client.send("DOWN a"))
+            assertTrue(client.send("UP nope").startsWith("FAIL"))
+            assertTrue(client.send("PORT a") == "port=-", client.send("PORT a"))
+            assertTrue(client.send("PORT nope").startsWith("FAIL"))
+        } finally {
+            server.stop()
+        }
+    }
 }

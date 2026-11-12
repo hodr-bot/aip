@@ -1,0 +1,16 @@
+# piad tunnels.conf — one [tunnel.<name>] per live tunnel.
+# Name: a-z, 0-9, -, max 11 chars. Interface becomes pia-<name>.
+# Unknown keys are a hard error at startup; fix the typo, don't guess.
+# Lookup order: $PIAD_TUNNELS, /etc/piad/tunnels.conf, $PIAD_STATE_DIR/tunnels.conf.
+# No file at all means one default tunnel (old single-tunnel behaviour).
+
+[tunnel.boulot]
+server = nl_amsterdam
+port-forward = true
+allow-lan = true
+auto-connect = true
+post-port-up = /usr/local/bin/qbit-port.sh
+
+[tunnel.perso]
+server = ch_zurich
+auto-connect = false

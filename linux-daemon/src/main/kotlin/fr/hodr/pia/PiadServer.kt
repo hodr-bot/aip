@@ -15,12 +15,17 @@ import java.nio.file.attribute.PosixFilePermission
  * writes straight to the 0600 token store and is never echoed.
  *
  * Commands: STATUS | CONNECT [serverId] | DISCONNECT | LOGIN user pass |
- * ALLOWLAN on|off | SERVERS
+ * ALLOWLAN on|off | SERVERS | PORT [name] | PORTFORWARD [name] on [hook]|off |
+ * UP name [serverId] | DOWN name | LIST
+ *
+ * Single-tunnel commands hit the default tunnel; UP/DOWN/LIST and the
+ * optional [name] address one tunnel of a multi-tunnel manager.
  */
 class PiadServer(
     private val engine: DaemonEngine,
     private val store: FileTokenStore,
     private val socketPath: java.nio.file.Path,
+    private val manager: TunnelManager? = null,
 ) {
 
     @Volatile
@@ -114,22 +119,54 @@ class PiadServer(
             } catch (t: Throwable) {
                 "FAIL ${engine.lastError ?: "no server list"}"
             }
-            "PORT" -> "port=${engine.forwardedPort ?: "-"}"
+            "PORT" -> {
+                val target = named(parts.getOrNull(1)) ?: return "FAIL unknown tunnel"
+                "port=${target.forwardedPort ?: "-"}"
+            }
             "PORTFORWARD" -> {
-                when (parts.getOrNull(1)?.lowercase()) {
+                // PORTFORWARD on [hook] | PORTFORWARD name on [hook]|off
+                val (target, sub, hook) = if (parts.getOrNull(1)?.lowercase() in listOf("on", "off")) {
+                    Triple(engine, parts.getOrNull(1), parts.drop(2).joinToString(" ").ifEmpty { null })
+                } else {
+                    val target = named(parts.getOrNull(1)) ?: return "FAIL unknown tunnel"
+                    Triple(target, parts.getOrNull(2), parts.drop(3).joinToString(" ").ifEmpty { null })
+                }
+                when (sub?.lowercase()) {
                     "on" -> {
-                        engine.setPortForward(true, parts.drop(2).joinToString(" ").ifEmpty { null })
-                        "OK port=${engine.forwardedPort ?: "-"}"
+                        target.setPortForward(true, hook)
+                        "OK port=${target.forwardedPort ?: "-"}"
                     }
                     "off" -> {
-                        engine.setPortForward(false, null)
+                        target.setPortForward(false, null)
                         "OK"
                     }
-                    else -> "FAIL usage: PORTFORWARD on [hook]|off"
+                    else -> "FAIL usage: PORTFORWARD [name] on [hook]|off"
+                }
+            }
+            "UP" -> {
+                val mgr = manager ?: return "FAIL single-tunnel daemon"
+                val name = parts.getOrNull(1) ?: return "FAIL usage: UP name [serverId]"
+                if (mgr.up(name, parts.getOrNull(2))) "OK" else "FAIL ${mgr.tunnels[name]?.engine?.lastError ?: "unknown tunnel"}"
+            }
+            "DOWN" -> {
+                val mgr = manager ?: return "FAIL single-tunnel daemon"
+                val name = parts.getOrNull(1) ?: return "FAIL usage: DOWN name"
+                if (mgr.down(name)) "OK" else "FAIL unknown tunnel"
+            }
+            "LIST" -> {
+                val mgr = manager ?: return "FAIL single-tunnel daemon"
+                mgr.tunnels.values.joinToString(";") {
+                    "${it.spec.name}=${it.engine.status}:${it.engine.activeServerId ?: "-"}:${it.engine.forwardedPort ?: "-"}"
                 }
             }
             else -> "FAIL unknown command"
         }
+    }
+
+    /** Default engine when no name given, the named tunnel engine otherwise. */
+    private fun named(name: String?): DaemonEngine? {
+        if (name.isNullOrEmpty()) return engine
+        return manager?.tunnels?.get(name)?.engine
     }
 }
 
