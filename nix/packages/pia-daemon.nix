@@ -44,6 +44,7 @@ stdenv.mkDerivation {
       fr.hodr.pia.FileTokenStoreTest \
       fr.hodr.pia.TunnelOpsTest \
       fr.hodr.pia.DaemonEngineTest \
+      fr.hodr.pia.PortForwardTest \
       fr.hodr.pia.PiadServerTest
   '';
   installPhase = ''
